@@ -1,0 +1,22 @@
+{
+  "name": "dccb_audit",
+  "description": "CRAR-focused DCCB audit profile.",
+  "authorityRefs": [
+    "domain_profile:dccb:crar_formula",
+    "domain_profile:dccb:crar_threshold",
+    "domain_profile:dccb:reported_crar_match"
+  ],
+  "invariants": [
+    "DCCB_001_FORMULA",
+    "DCCB_002_THRESHOLD",
+    "DCCB_003_REPORTED_CRAR_MATCH",
+    "DCCB_004_CAPITAL_COMPONENTS_PRESENT",
+    "DCCB_005_NUMERIC_FIELDS_VALID",
+    "DCCB_006_RWA_POSITIVE",
+    "DCCB_007_THRESHOLD_CLASSIFICATION",
+    "DCCB_008_REPORTED_STATUS_MATCH"
+  ],
+  "passOverrides": {},
+  "toolPreferences": {},
+  "reportSections": ["Terminal State", "Inputs", "Authority", "Lineage", "Invariant Results"]
+}

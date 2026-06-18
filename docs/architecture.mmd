@@ -1,0 +1,8 @@
+flowchart LR
+  Request["Request / Domain Task"] --> TaskAST["TaskAST"]
+  TaskAST --> Motif["Motif Diagnosis"]
+  Motif --> Plan["Pass Plan"]
+  Plan --> Patch["StatePatch"]
+  Patch --> Invariants["Invariant Check"]
+  Invariants --> Commit["Commit Success / Failure"]
+  Commit --> Pack["Audit Pack"]

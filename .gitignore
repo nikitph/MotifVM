@@ -1,0 +1,6 @@
+.motifvm/
+audit_pack/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

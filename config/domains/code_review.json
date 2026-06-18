@@ -1,0 +1,21 @@
+{
+  "name": "code_review",
+  "description": "Security-focused code diff review profile.",
+  "authorityRefs": [
+    "authority:code_review:security_policy",
+    "authority:code_review:review_policy",
+    "authority:code_review:test_policy"
+  ],
+  "invariants": [
+    "CODE_001_CHANGED_FILES_HASHED",
+    "CODE_002_DIFF_HAS_LINEAGE",
+    "CODE_003_NO_UNCONDITIONAL_AUTH_ALLOW",
+    "CODE_004_NO_SECRET_LITERAL",
+    "CODE_005_TEST_STATUS_RECORDED",
+    "CODE_006_FINAL_RISK_HAS_EVIDENCE",
+    "CODE_007_REVIEW_TERMINAL_STATUS_VALID"
+  ],
+  "passOverrides": {},
+  "toolPreferences": {},
+  "reportSections": ["Terminal State", "Inputs", "Authority", "Claims", "Lineage", "Invariant Results"]
+}
