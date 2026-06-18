@@ -253,7 +253,7 @@ h3 {
   margin: 0 auto;
   padding: 18px 22px;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -310,6 +310,99 @@ h3 {
   max-width: 760px;
 }
 
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.metric-grid article {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(31, 41, 55, 0.06);
+}
+
+.metric-grid span {
+  display: block;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 830;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.metric-grid strong {
+  display: block;
+  margin: 10px 0 12px;
+  color: var(--heading);
+  font-family: "Aptos Display", "Segoe UI Variable Display", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(42px, 6vw, 76px);
+  line-height: 0.9;
+}
+
+.metric-grid p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.release-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.release-links a {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--blue);
+  padding: 10px 12px;
+  font-weight: 760;
+}
+
+.trace-card {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgba(31, 41, 55, 0.06);
+  padding: 8px 24px;
+}
+
+.trace-card ol {
+  list-style: none;
+  counter-reset: trace;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-card li {
+  counter-increment: trace;
+  display: grid;
+  grid-template-columns: 142px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.trace-card li:last-child {
+  border-bottom: 0;
+}
+
+.trace-card strong {
+  color: var(--heading);
+}
+
+.trace-card strong::before {
+  content: counter(trace, decimal-leading-zero) " ";
+  color: var(--amber);
+  font-weight: 900;
+}
+
+.trace-card span {
+  color: var(--muted);
+}
+
 .kernel-grid {
   display: grid;
   grid-template-columns: 1fr 1.2fr;
@@ -350,6 +443,7 @@ h3 {
 pre {
   margin: 0;
   overflow: auto;
+  white-space: pre-wrap;
   color: #13324b;
   background: var(--code);
   border: 1px solid rgba(23, 105, 194, 0.18);
@@ -359,6 +453,7 @@ pre {
 code {
   font-family: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .diagram-stack {
@@ -560,7 +655,8 @@ code {
   .pipeline,
   .flow-board,
   .terminal-grid,
-  .domain-steps {
+  .domain-steps,
+  .metric-grid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -594,9 +690,15 @@ code {
   .flow-board,
   .terminal-grid,
   .domain-steps,
+  .metric-grid,
   .adapter-row,
   .adapter-output {
     grid-template-columns: 1fr;
+  }
+
+  .trace-card li {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .verify-card ul {

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>MotifVM - Invariant-Checked Reasoning Runtime</title>
-  <meta name="description" content="MotifVM is an invariant-checked reasoning runtime for LLM and tool systems.">
+  <title>MotifVM - Motif-Aware Cognitive Compiler</title>
+  <meta name="description" content="MotifVM is a motif-aware cognitive compiler over an invariant-checked reasoning runtime for LLM and tool systems.">
   <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
@@ -16,11 +16,10 @@
     <nav class="nav-links" aria-label="Sections">
       <a href="#kernel">Kernel</a>
       <a href="#compiler">Compiler</a>
+      <a href="#release">Release</a>
+      <a href="#trace">Trace</a>
       <a href="#adapters">Adapters</a>
-      <a href="#facts">Facts</a>
-      <a href="#patches">Patches</a>
       <a href="#audit">Audit</a>
-      <a href="#domain">Domains</a>
     </nav>
     <a class="nav-action" href="https://github.com/nikitph/MotifVM">GitHub</a>
   </header>
@@ -30,17 +29,18 @@
       <canvas id="kernel-canvas" aria-hidden="true"></canvas>
       <div class="hero-shade" aria-hidden="true"></div>
       <div class="hero-content">
-        <p class="eyebrow">Auditable cognitive virtual machine</p>
+        <p class="eyebrow">v0.6.5 research release</p>
         <h1 id="hero-title">MotifVM</h1>
         <p class="hero-copy">
-          An invariant-checked reasoning runtime with a motif-aware compiler:
-          tasks become MotifFrames, frames become ReasoningPlans, and every
-          model or tool output must pass through authorized StatePatches before
-          it becomes committed state.
+          A motif-aware cognitive compiler over an invariant-checked reasoning
+          runtime. Tasks become MotifFrames, frames become ReasoningPlans, and
+          every model or tool output must pass through authorized StatePatches
+          before it becomes committed state.
         </p>
         <div class="hero-actions">
-          <a class="button primary" href="#what">Explore the runtime</a>
+          <a class="button primary" href="#compiler">Explore the compiler</a>
           <a class="button secondary" href="motifvm_core_freeze_paper.pdf">Read the paper</a>
+          <a class="button secondary" href="../RELEASE_NOTES_v0.6.5.md">Release notes</a>
         </div>
       </div>
       <aside class="hero-proof" aria-label="Release proof">
@@ -52,9 +52,10 @@
 
     <section class="runtime-strip" aria-label="Runtime pipeline">
       <div class="pipeline">
-        <span>Artifact</span>
+        <span>TaskAST</span>
         <span>MotifFrame</span>
         <span>ReasoningPlan</span>
+        <span>Artifact</span>
         <span>EvidenceRef</span>
         <span>ExtractedFact</span>
         <span>StatePatch</span>
@@ -82,6 +83,57 @@
           authority extraction, structural checks, and replan behavior when
           invariants classify a terminal failure.
         </p>
+      </div>
+    </section>
+
+    <section id="release" class="section">
+      <div class="section-heading">
+        <p class="section-kicker">Research release</p>
+        <h2>v0.6.5 closes the loop: compiler, kernel, verifier.</h2>
+        <p>
+          The release combines runtime evaluation, adversarial evaluation, and
+          compiler-planning evaluation into one reproducible gate.
+        </p>
+      </div>
+      <div class="metric-grid">
+        <article>
+          <span>Runtime eval</span>
+          <strong>1.0</strong>
+          <p>Terminal status, failed invariant, reconciliation, lineage, authority, and input-hash checks.</p>
+        </article>
+        <article>
+          <span>Adversarial-100</span>
+          <strong>100/100</strong>
+          <p>Status, failed invariant, and failure-class correctness with pack verifier pass rate 1.0000.</p>
+        </article>
+        <article>
+          <span>Compiler eval</span>
+          <strong>4/4</strong>
+          <p>Plan selection and verification policy accuracy with zero missed or unnecessary required passes.</p>
+        </article>
+      </div>
+      <div class="release-links">
+        <a href="results_v0_6_5.md">Detailed results</a>
+        <a href="../RELEASE_NOTES_v0.6.5.md">Research release note</a>
+        <a href="compiler_contract.md">Compiler contract</a>
+      </div>
+    </section>
+
+    <section id="trace" class="section split">
+      <div>
+        <p class="section-kicker">Example trace</p>
+        <h2>A failed answer is still a verified state.</h2>
+      </div>
+      <div class="trace-card" aria-label="MotifVM compiler trace">
+        <ol>
+          <li><strong>Task</strong><span>Verify CRAR over the mismatch fixture.</span></li>
+          <li><strong>MotifFrame</strong><span>High invariant, authority, reconciliation, and terminal-state risk.</span></li>
+          <li><strong>ReasoningPlan</strong><span>Strict verification with evidence, authority, execution, and structural passes.</span></li>
+          <li><strong>StatePatches</strong><span>Adapter output, evidence graph, CRAR computation, and final output.</span></li>
+          <li><strong>Invariant failure</strong><span>Reported CRAR is 19.00%; computed CRAR is 16.00%.</span></li>
+          <li><strong>Replan</strong><span>failureClass=reconciliation_required, action=run_reconciliation.</span></li>
+          <li><strong>Terminal state</strong><span>committed_failed with a non-mutating correction proposal and audit pack.</span></li>
+        </ol>
       </div>
     </section>
 
@@ -130,6 +182,8 @@
             <li>Claim</li>
             <li>Invariant</li>
             <li>AuthorityRef</li>
+            <li>MotifFrame</li>
+            <li>ReasoningPlan</li>
             <li>AuditPack</li>
           </ul>
         </article>
@@ -349,6 +403,7 @@
       <h2>MotifVM turns LLM systems into inspectable state machines with explicit planning policy.</h2>
       <div class="cta-actions">
         <a class="button primary" href="https://github.com/nikitph/MotifVM">Open GitHub</a>
+        <a class="button secondary" href="motifvm_core_freeze_paper.pdf">Read the paper</a>
         <a class="button secondary" href="results_v0_6_5.md">See v0.6.5 results</a>
       </div>
     </section>
@@ -356,8 +411,8 @@
 
   <footer class="site-footer">
     <span>MotifVM</span>
-    <span>Invariant-checked reasoning runtime</span>
-    <a href="motifvm_core_freeze_paper.pdf">Core freeze paper</a>
+    <span>Motif-aware cognitive compiler</span>
+    <a href="motifvm_core_freeze_paper.pdf">v0.6.5 paper</a>
   </footer>
 
   <script src="assets/site.js"></script>

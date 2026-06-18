@@ -7,11 +7,12 @@ let height = 0;
 let nodes = [];
 
 const stages = [
-  "Artifact",
-  "EvidenceRef",
-  "ExtractedFact",
+  "TaskAST",
+  "MotifFrame",
+  "ReasoningPlan",
   "StatePatch",
   "Invariant",
+  "Replan",
   "AuditPack"
 ];
 
@@ -36,9 +37,9 @@ function buildNodes() {
       label,
       x,
       y,
-      r: index === 3 ? 18 : 13,
+      r: index === 2 ? 18 : 13,
       phase: index * 0.8,
-      color: ["#1769c2", "#0d8a72", "#a66b00", "#7154cf", "#c73652", "#334155"][index]
+      color: ["#1769c2", "#0d8a72", "#7154cf", "#a66b00", "#c73652", "#0d8a72", "#334155"][index]
     };
   });
 }
