@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MotifVM - Invariant-Checked Reasoning Runtime</title>
+  <meta name="description" content="MotifVM is an invariant-checked reasoning runtime for LLM and tool systems.">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <header class="site-header" aria-label="Primary">
+    <a class="brand" href="#top" aria-label="MotifVM home">
+      <span class="brand-mark" aria-hidden="true">M</span>
+      <span>MotifVM</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#kernel">Kernel</a>
+      <a href="#adapters">Adapters</a>
+      <a href="#facts">Facts</a>
+      <a href="#patches">Patches</a>
+      <a href="#audit">Audit</a>
+      <a href="#domain">Domains</a>
+    </nav>
+    <a class="nav-action" href="https://github.com/nikitph/MotifVM">GitHub</a>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <canvas id="kernel-canvas" aria-hidden="true"></canvas>
+      <div class="hero-shade" aria-hidden="true"></div>
+      <div class="hero-content">
+        <p class="eyebrow">Auditable cognitive virtual machine</p>
+        <h1 id="hero-title">MotifVM</h1>
+        <p class="hero-copy">
+          An invariant-checked reasoning runtime where artifacts become evidence,
+          facts become claims, and model or tool outputs must pass through
+          authorized StatePatches before they become committed state.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#what">Explore the runtime</a>
+          <a class="button secondary" href="motifvm_core_freeze_paper.pdf">Read the paper</a>
+        </div>
+      </div>
+      <aside class="hero-proof" aria-label="Release proof">
+        <span>core freeze</span>
+        <strong>v0.5.4</strong>
+        <small>Adapter boundary + ExtractedFact normal form</small>
+      </aside>
+    </section>
+
+    <section class="runtime-strip" aria-label="Runtime pipeline">
+      <div class="pipeline">
+        <span>Artifact</span>
+        <span>EvidenceRef</span>
+        <span>ExtractedFact</span>
+        <span>StatePatch</span>
+        <span>Invariant</span>
+        <span>TerminalState</span>
+        <span>AuditPack</span>
+      </div>
+    </section>
+
+    <section id="what" class="section split">
+      <div>
+        <p class="section-kicker">1. What is MotifVM?</p>
+        <h2>MotifVM is a reasoning kernel, not an agent framework.</h2>
+      </div>
+      <div class="prose">
+        <p>
+          MotifVM turns messy inputs and LLM/tool outputs into typed, inspectable
+          state transitions. It does not let a model response become truth by
+          default. Every meaningful change is proposed as a StatePatch, checked
+          against permissions and invariants, then committed as success or
+          structured failure.
+        </p>
+        <p>
+          The runtime separates perception, reasoning, trust, mutation, and
+          portability: adapters extract evidence and facts, passes propose
+          claims, invariants decide terminal states, and audit packs make the
+          trace portable.
+        </p>
+      </div>
+    </section>
+
+    <section id="kernel" class="section">
+      <div class="section-heading">
+        <p class="section-kicker">2. Kernel contract</p>
+        <h2>The kernel owns mutation.</h2>
+        <p>
+          No adapter, pass, tool, or LLM call mutates CognitiveState directly.
+          The runtime alone validates, authorizes, applies, verifies, commits,
+          and exports.
+        </p>
+      </div>
+      <div class="kernel-grid">
+        <article class="contract-panel">
+          <h3>Kernel primitives</h3>
+          <ul class="token-list">
+            <li>CognitiveState</li>
+            <li>StatePatch</li>
+            <li>PatchAuthorization</li>
+            <li>ArtifactAdapter</li>
+            <li>EvidenceRef</li>
+            <li>ExtractedFact</li>
+            <li>Claim</li>
+            <li>Invariant</li>
+            <li>AuthorityRef</li>
+            <li>AuditPack</li>
+          </ul>
+        </article>
+        <article class="contract-panel code-panel">
+          <h3>Transition law</h3>
+          <pre><code>CognitiveState + StatePatch
+  -> schema validation
+  -> role authorization
+  -> apply transition
+  -> invariant verification
+  -> terminal commit
+  -> audit-pack export</code></pre>
+        </article>
+      </div>
+    </section>
+
+    <section id="adapters" class="section split">
+      <div>
+        <p class="section-kicker">3. How artifact adapters work</p>
+        <h2>Adapters are device drivers for evidence.</h2>
+      </div>
+      <div class="diagram-stack">
+        <div class="adapter-row">
+          <span class="source csv">CSV</span>
+          <span class="source diff">Diff</span>
+          <span class="source repo">Repo</span>
+          <span class="source future">PDF</span>
+          <span class="source future">API</span>
+        </div>
+        <div class="adapter-core">
+          <strong>ArtifactAdapter</strong>
+          <span>hashes content, locates evidence, emits normalized facts</span>
+        </div>
+        <div class="adapter-output">
+          <span>EvidenceRef[]</span>
+          <span>ExtractedFact[]</span>
+        </div>
+        <p class="caption">
+          The core does not care whether evidence came from a spreadsheet cell,
+          repository line, PDF region, API JSON path, or log event. It cares
+          that the adapter output is stable, hash-bound, and schema-valid.
+        </p>
+      </div>
+    </section>
+
+    <section id="facts" class="section">
+      <div class="section-heading">
+        <p class="section-kicker">4. How facts become claims</p>
+        <h2>Facts are extracted. Claims are proposed.</h2>
+      </div>
+      <div class="flow-board" aria-label="Facts to claims flow">
+        <article>
+          <span class="step-number">01</span>
+          <h3>EvidenceRef</h3>
+          <p>Stable input hash, locator type, locator, and excerpt.</p>
+        </article>
+        <article>
+          <span class="step-number">02</span>
+          <h3>ExtractedFact</h3>
+          <p>Normalized value with confidence and a link back to evidence.</p>
+        </article>
+        <article>
+          <span class="step-number">03</span>
+          <h3>Domain pass</h3>
+          <p>Consumes facts and proposes claim/output nodes through a patch.</p>
+        </article>
+        <article>
+          <span class="step-number">04</span>
+          <h3>Claim</h3>
+          <p>A runtime conclusion that must remain traceable to facts.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="patches" class="section split">
+      <div>
+        <p class="section-kicker">5. How StatePatches are authorized</p>
+        <h2>Outputs become proposals before they become state.</h2>
+      </div>
+      <div class="policy-table-wrap">
+        <table class="policy-table">
+          <thead>
+            <tr>
+              <th>Role</th>
+              <th>Allowed</th>
+              <th>Blocked</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Domain pass</td>
+              <td>claims, outputs, artifacts, domain-scoped graph edges</td>
+              <td>cross-domain evidence injection</td>
+            </tr>
+            <tr>
+              <td>LLM</td>
+              <td>bounded narrative artifacts</td>
+              <td>terminal status, invariants, input manifest, authority refs</td>
+            </tr>
+            <tr>
+              <td>Reconciliation</td>
+              <td>non-mutating correction proposals</td>
+              <td>source mutation without confirmation</td>
+            </tr>
+            <tr>
+              <td>Runtime</td>
+              <td>commit state, write audit metadata</td>
+              <td>unverified terminal claims</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="invariants" class="section">
+      <div class="section-heading">
+        <p class="section-kicker">6. How invariants define terminal states</p>
+        <h2>Failure is structured runtime output.</h2>
+        <p>
+          MotifVM commits failed states instead of hiding them behind exceptions
+          or vague refusals.
+        </p>
+      </div>
+      <div class="terminal-grid">
+        <article>
+          <strong>committed_success</strong>
+          <p>All error-severity invariants pass.</p>
+        </article>
+        <article>
+          <strong>input_invalid</strong>
+          <p>Malformed or invalid source artifact values.</p>
+        </article>
+        <article>
+          <strong>computation_blocked</strong>
+          <p>Required evidence is missing or insufficient.</p>
+        </article>
+        <article>
+          <strong>reconciliation_required</strong>
+          <p>Evidence conflicts and a non-mutating correction is proposed.</p>
+        </article>
+        <article>
+          <strong>security_risk_detected</strong>
+          <p>Code-review invariants detect unsafe behavior.</p>
+        </article>
+        <article>
+          <strong>llm_patch_rejected</strong>
+          <p>A model proposed a forbidden transition.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="audit" class="section split">
+      <div>
+        <p class="section-kicker">7. How audit packs are verified</p>
+        <h2>The answer ships with its evidence bundle.</h2>
+      </div>
+      <div class="audit-layout">
+        <div class="audit-files">
+          <span>state.json</span>
+          <span>graph.json</span>
+          <span>lineage.json</span>
+          <span>inputs_manifest.json</span>
+          <span>extracted_facts.json</span>
+          <span>invariants.json</span>
+          <span>patch_timeline.json</span>
+          <span>report.md</span>
+        </div>
+        <div class="verify-card">
+          <h3>verify-pack checks</h3>
+          <ul>
+            <li>input hashes</li>
+            <li>authority and section hashes</li>
+            <li>graph endpoints</li>
+            <li>lineage references</li>
+            <li>adapter conformance</li>
+            <li>patch timeline shape</li>
+          </ul>
+          <pre><code>python3 -m motifvm verify-pack audit_pack/001</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="domain" class="section">
+      <div class="section-heading">
+        <p class="section-kicker">8. How to add a domain</p>
+        <h2>Domains plug into the kernel through profiles, passes, and invariants.</h2>
+      </div>
+      <div class="domain-steps">
+        <article>
+          <h3>1. Define authority</h3>
+          <p>Add checked-in authority sources and section-level AuthorityRefs.</p>
+        </article>
+        <article>
+          <h3>2. Choose adapters</h3>
+          <p>Use existing adapters or add one that emits EvidenceRefs and ExtractedFacts.</p>
+        </article>
+        <article>
+          <h3>3. Write domain passes</h3>
+          <p>Consume facts and propose claims, outputs, and artifacts through StatePatch.</p>
+        </article>
+        <article>
+          <h3>4. Add invariants</h3>
+          <p>Define terminal correctness: pass, fail, block, reconcile, or reject.</p>
+        </article>
+        <article>
+          <h3>5. Verify packs</h3>
+          <p>Export audit packs and run the verifier in CI before trusting the domain.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section cta">
+      <p class="section-kicker">Kernel frozen, surfaces open</p>
+      <h2>MotifVM turns LLM systems into inspectable state machines.</h2>
+      <div class="cta-actions">
+        <a class="button primary" href="https://github.com/nikitph/MotifVM">Open GitHub</a>
+        <a class="button secondary" href="results_v0_5_4.md">See v0.5.4 results</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>MotifVM</span>
+    <span>Invariant-checked reasoning runtime</span>
+    <a href="motifvm_core_freeze_paper.pdf">Core freeze paper</a>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

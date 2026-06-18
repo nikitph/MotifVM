@@ -1,0 +1,121 @@
+const canvas = document.getElementById("kernel-canvas");
+const ctx = canvas.getContext("2d");
+const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let width = 0;
+let height = 0;
+let nodes = [];
+
+const stages = [
+  "Artifact",
+  "EvidenceRef",
+  "ExtractedFact",
+  "StatePatch",
+  "Invariant",
+  "AuditPack"
+];
+
+function resize() {
+  const ratio = window.devicePixelRatio || 1;
+  width = canvas.clientWidth;
+  height = canvas.clientHeight;
+  canvas.width = Math.floor(width * ratio);
+  canvas.height = Math.floor(height * ratio);
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  buildNodes();
+}
+
+function buildNodes() {
+  const columns = stages.length;
+  const top = height * 0.22;
+  const bottom = height * 0.76;
+  nodes = stages.map((label, index) => {
+    const x = width * (0.42 + (index / (columns - 1)) * 0.52);
+    const y = top + ((index % 2) * 0.42 + 0.14) * (bottom - top);
+    return {
+      label,
+      x,
+      y,
+      r: index === 3 ? 18 : 13,
+      phase: index * 0.8,
+      color: ["#69b7ff", "#6ee7b7", "#f5c451", "#b79cff", "#ff7a90", "#dbeafe"][index]
+    };
+  });
+}
+
+function draw(time = 0) {
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#090d12";
+  ctx.fillRect(0, 0, width, height);
+
+  const t = time * 0.001;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < nodes.length - 1; i += 1) {
+    const a = nodes[i];
+    const b = nodes[i + 1];
+    const pulse = prefersReduced ? 0.4 : (Math.sin(t * 1.6 + i) + 1) / 2;
+    ctx.strokeStyle = `rgba(105, 183, 255, ${0.16 + pulse * 0.26})`;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    const mid = (a.x + b.x) / 2;
+    ctx.bezierCurveTo(mid, a.y, mid, b.y, b.x, b.y);
+    ctx.stroke();
+  }
+
+  for (const node of nodes) {
+    const pulse = prefersReduced ? 0 : Math.sin(t * 1.8 + node.phase) * 2.6;
+    ctx.beginPath();
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.arc(node.x, node.y, node.r + 18 + pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.fillStyle = node.color;
+    ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = "700 13px Inter, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(244,247,251,0.86)";
+    ctx.textAlign = "center";
+    ctx.fillText(node.label, node.x, node.y + node.r + 28);
+  }
+
+  drawStateMachine(t);
+
+  if (!prefersReduced) {
+    requestAnimationFrame(draw);
+  }
+}
+
+function drawStateMachine(t) {
+  const x = width * 0.69;
+  const y = height * 0.5;
+  const radius = Math.min(width, height) * 0.19;
+  const labels = ["validate", "authorize", "apply", "verify", "commit"];
+  ctx.strokeStyle = "rgba(110, 231, 183, 0.22)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  labels.forEach((label, index) => {
+    const angle = (Math.PI * 2 * index) / labels.length - Math.PI / 2 + (prefersReduced ? 0 : t * 0.035);
+    const px = x + Math.cos(angle) * radius;
+    const py = y + Math.sin(angle) * radius;
+    ctx.fillStyle = "rgba(9, 13, 18, 0.88)";
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.rect(px - 46, py - 15, 92, 30);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(244,247,251,0.86)";
+    ctx.font = "700 11px Inter, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(label, px, py + 4);
+  });
+}
+
+window.addEventListener("resize", resize);
+resize();
+draw();
