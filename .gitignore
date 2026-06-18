@@ -1,5 +1,6 @@
 .motifvm/
 audit_pack/
+demo/audit_packs/
 __pycache__/
 *.pyc
 .pytest_cache/

@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from .invariants import run_invariants
+from .failure import classify_failure
 from .llm import DeepSeekLLMClient, MockLLMClient, StructuredCallSpec
 from .model import MOTIF_KEYS, PHASE_ORDER, CompilerPass, PassResult, StatePatch, empty_motif_vector
 from .passes import edge, node, registry
+from .patch_auth import authorize_patch
 from .registry import load_domain_profile, validate_pass_graph
 from .schema import validate_cognitive_state, validate_state_patch
 from .storage import append_jsonl, commit_state, ensure_store, read_json, utc_now, write_json
@@ -311,6 +313,12 @@ def validate_patch(state: dict[str, Any], patch: StatePatch) -> list[str]:
     return errors
 
 
+def validate_llm_patch(state: dict[str, Any], patch: StatePatch) -> list[str]:
+    errors = validate_patch(state, patch)
+    errors.extend(authorize_patch(patch, "llm", state.get("taskAst", {}).get("meta", {}).get("domain")))
+    return errors
+
+
 def check_pass_preconditions(state: dict[str, Any], compiler_pass: CompilerPass) -> list[str]:
     errors: list[str] = []
     node_types = {
@@ -544,6 +552,9 @@ def execute_pass(
         state["status"] = "failed"
         return state, result
     validation_errors = validate_patch(state, result.patch)
+    validation_errors.extend(
+        authorize_patch(result.patch, "domain_pass", state.get("taskAst", {}).get("meta", {}).get("domain"))
+    )
     if validation_errors:
         failed = PassResult("failed", result.patch, error="; ".join(validation_errors))
         state["status"] = "failed"
@@ -657,6 +668,7 @@ def run_task(
             state,
             status="committed_failed",
             reason=", ".join(item["invariantId"] for item in graph_errors),
+            failure_class=classify_failure(item["invariantId"] for item in graph_errors),
         )
         return state
     passes = select_passes(registry(), state["motifState"]["required"], state["motifState"]["supported"])
@@ -715,6 +727,7 @@ def run_task(
             state,
             status="committed_failed",
             reason=reason,
+            failure_class=classify_failure(item.get("invariantId", "unknown") for item in fatal),
         )
     else:
         _commit_id, state = commit_state(store, state, status="committed_success")

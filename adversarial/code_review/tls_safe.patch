@@ -1,0 +1,5 @@
+--- a/client.py
++++ b/client.py
+@@ -1 +1,2 @@
+ import requests
++requests.get(url, timeout=5, verify=True)

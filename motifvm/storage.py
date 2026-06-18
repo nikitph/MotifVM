@@ -58,18 +58,25 @@ def commit_state(
     state: dict[str, Any],
     status: str = "committed_success",
     reason: str | None = None,
+    failure_class: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     commit_id = next_commit_id(store)
     committed = deepcopy(state)
     committed["status"] = status
     committed["parentCommit"] = commit_id
     committed["terminalReason"] = reason
+    committed["failureClass"] = failure_class
     committed.setdefault("executionLog", []).append(
         {
             "timestamp": utc_now(),
             "phase": "commit",
             "event": "state_committed",
-            "details": {"commitId": commit_id, "status": status, "reason": reason},
+            "details": {
+                "commitId": commit_id,
+                "status": status,
+                "reason": reason,
+                "failureClass": failure_class,
+            },
         }
     )
     write_json(store / "state" / "commits" / f"{commit_id}.json", committed)

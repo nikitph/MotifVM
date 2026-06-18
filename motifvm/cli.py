@@ -6,11 +6,13 @@ import sys
 from pathlib import Path
 
 from .audit import export_audit_pack
+from .adversarial import run_adversarial
 from .eval import run_evaluation
 from .graph import compare_states
 from .reporting import load_state, render_report
 from .runtime import run_task
 from .storage import ensure_store, read_json, write_json
+from .verify_pack import verify_pack
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,6 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate = sub.add_parser("eval", help="Run the MotifVM evaluation harness.")
     evaluate.add_argument("--expected", default=None, help="Expected outcomes JSON. Defaults to eval/expected.json.")
+
+    adversarial = sub.add_parser("adversarial", help="Run adversarial evaluation suite.")
+    adversarial.add_argument("--expected", default=None)
+
+    verify = sub.add_parser("verify-pack", help="Verify an exported audit pack.")
+    verify.add_argument("pack")
+    verify.add_argument("--json", action="store_true")
 
     init = sub.add_parser("init", help="Initialize .motifvm directories.")
     init.add_argument("--domain", default=None)
@@ -126,6 +135,23 @@ def main(argv: list[str] | None = None) -> None:
             expected = Path(args.expected).resolve() if args.expected else None
             target = run_evaluation(root, expected)
             print(f"Evaluation outputs written to {target}")
+            return
+        if args.command == "adversarial":
+            expected = Path(args.expected).resolve() if args.expected else None
+            target = run_adversarial(root, expected)
+            print(f"Adversarial outputs written to {target}")
+            return
+        if args.command == "verify-pack":
+            ok, issues = verify_pack(Path(args.pack))
+            if args.json:
+                print(json.dumps({"ok": ok, "issues": issues}, indent=2, sort_keys=True))
+            elif ok:
+                print("Audit pack verified")
+            else:
+                for issue in issues:
+                    print(f"{issue['check']}: {issue['message']}")
+            if not ok:
+                raise SystemExit(1)
             return
         parser.error(f"Unsupported command: {args.command}")
     except Exception as exc:

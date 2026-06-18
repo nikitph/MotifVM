@@ -1,0 +1,6 @@
+--- a/client.py
++++ b/client.py
+@@ -1 +1,3 @@
+ import requests
++s = requests.Session()
++s.verify = False

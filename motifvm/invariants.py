@@ -704,6 +704,17 @@ def check_dccb_capital_components_present(state: dict[str, Any]) -> dict[str, An
         )
     validation = _crar_validation_artifact(state)
     if validation is not None:
+        message = validation.get("content", {}).get("message", "")
+        if "missing required components" in message:
+            missing_text = message.split(":", 1)[-1].strip()
+            missing = [item.strip() for item in missing_text.split(",") if item.strip()]
+            return result(
+                "DCCB_004_CAPITAL_COMPONENTS_PRESENT",
+                False,
+                "error",
+                f"Missing CRAR components: {', '.join(missing)}",
+                [validation["id"]],
+            )
         present = set(validation.get("content", {}).get("presentComponents", []))
         missing = [key for key in ("tier1", "tier2", "rwa") if key not in present]
         return result(

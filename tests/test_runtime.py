@@ -1,13 +1,18 @@
 import csv
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+from motifvm.adversarial import run_adversarial
 from motifvm.audit import export_audit_pack
+from motifvm.verify_pack import verify_pack
 from motifvm.graph import compare_states
 from motifvm.llm import DeepSeekLLMClient
+from motifvm.model import StatePatch
 from motifvm.passes import registry
+from motifvm.patch_auth import authorize_patch
 from motifvm.runtime import (
     check_pass_preconditions,
     diagnose,
@@ -111,6 +116,7 @@ class RuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(state["status"], "committed_failed")
+            self.assertEqual(state["failureClass"], "reconciliation_required")
             self.assertEqual(state["terminalReason"], "DCCB_003_REPORTED_CRAR_MATCH")
             mismatch = [
                 item
@@ -150,6 +156,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(recon_002["passed"])
 
             export_path = export_audit_pack(root, "001")
+            ok, issues = verify_pack(export_path)
+            self.assertTrue(ok, issues)
             self.assertTrue((export_path / "report.md").exists())
             self.assertTrue((export_path / "state.json").exists())
             self.assertTrue((export_path / "lineage.json").exists())
@@ -212,6 +220,7 @@ class RuntimeTests(unittest.TestCase):
             )
 
             self.assertEqual(state["status"], "committed_failed")
+            self.assertEqual(state["failureClass"], "computation_blocked")
             components = [
                 item
                 for item in state["invariants"]
@@ -320,6 +329,42 @@ class RuntimeTests(unittest.TestCase):
         errors = validate_state_patch({"nodesToAdd": "bad", "motifSupportDelta": {"nope": -1}})
         self.assertTrue(any("nodesToAdd" in error for error in errors))
         self.assertTrue(any("Unknown motif key" in error for error in errors))
+
+    def test_patch_authorization_rejects_llm_source_mutation(self):
+        patch = StatePatch(
+            task_updates={"domain": "dccb_audit"},
+            artifacts_to_add=[
+                {
+                    "id": "artifact:bad_recon",
+                    "type": "reconciliation_patch",
+                    "content": {"sourceMutated": True},
+                }
+            ],
+        )
+
+        errors = authorize_patch(patch, "llm", "dccb_audit")
+
+        self.assertTrue(any("modify_task_ast" in error for error in errors))
+        self.assertTrue(any("reconciliation patches" in error for error in errors))
+        self.assertTrue(any("mutate source" in error for error in errors))
+
+    def test_adversarial_suite_reports_expected_contracts(self):
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for dirname in ("adversarial", "config", "authority_sources"):
+                shutil.copytree(repo / dirname, root / dirname)
+
+            output = run_adversarial(root)
+            with (output / "adversarial_results.csv").open(encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            taxonomy = json.loads((output / "failure_taxonomy.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(len(rows), 20)
+            self.assertTrue(all(row["status_correct"] == "yes" for row in rows))
+            self.assertTrue(all(row["failed_invariant_correct"] == "yes" for row in rows))
+            self.assertTrue(all(row["failure_class_correct"] == "yes" for row in rows))
+            self.assertEqual(taxonomy["security_risk_detected"], 8)
 
     def test_deepseek_requires_env_key(self):
         import os

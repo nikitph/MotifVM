@@ -197,6 +197,7 @@ def _terminal_block(state: dict[str, Any]) -> list[str]:
     lines = [
         f"Status: {state.get('status')}",
         f"Reason: {state.get('terminalReason') or 'none'}",
+        f"Failure Class: {state.get('failureClass') or 'none'}",
     ]
     crar = next(
         (

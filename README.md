@@ -54,6 +54,20 @@ make eval
 
 Evaluation outputs are written to `.motifvm/eval_outputs/`.
 
+Run the adversarial harness:
+
+```bash
+make adversarial
+```
+
+Adversarial outputs are written to `.motifvm/adversarial_outputs/`, including `adversarial_results.csv` and `failure_taxonomy.json`.
+
+Verify an exported audit pack independently:
+
+```bash
+python3 -m motifvm verify-pack .motifvm/demo_outputs/dccb_mismatch/audit_pack
+```
+
 ## Examples
 
 Successful DCCB CRAR verification:
@@ -135,6 +149,22 @@ Failed states are first-class outputs. MotifVM preserves evidence, lineage, grap
 - `artifacts/*.json`
 
 Input manifest entries include SHA-256 hashes so row-level or line-level evidence remains stable even if source files change later.
+
+Audit packs can be checked without rerunning the task:
+
+```bash
+python3 -m motifvm verify-pack <audit-pack-dir>
+```
+
+## Demo Package
+
+The public demo package is under `demo/`:
+
+- `demo/run_all.sh`: runs tests, canonical demos, adversarial cases, and evaluation.
+- `demo/expected_results.md`: summarizes expected terminal states.
+- `demo/graph_explorer/index.html`: offline audit-pack graph viewer.
+
+Generated demo audit packs are copied to `demo/audit_packs/` and ignored by git.
 
 ## Paper Draft
 

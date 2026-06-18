@@ -1,0 +1,5 @@
+--- a/ser.py
++++ b/ser.py
+@@ -1 +1,2 @@
+ import pickle
++obj = pickle.loads(payload)
