@@ -100,6 +100,14 @@ def init_db() -> None:
               y REAL NOT NULL,
               PRIMARY KEY (run_id, node_id)
             );
+            CREATE TABLE IF NOT EXISTS chat_messages (
+              id TEXT PRIMARY KEY,
+              role TEXT NOT NULL,
+              content TEXT NOT NULL,
+              run_id TEXT,
+              proposal_id TEXT,
+              created_at TEXT NOT NULL
+            );
             """
         )
         count = conn.execute("SELECT COUNT(*) AS c FROM domains").fetchone()["c"]
@@ -176,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urlparse(self.path).path
         payload = self.read_json()
+        if path == "/api/chat":
+            return self.json(chat(payload))
         if path == "/api/invariants/propose":
             return self.json(propose_invariants(payload))
         if path == "/api/runs":
@@ -342,6 +352,119 @@ def create_run(payload: dict) -> dict:
         )
     run = get_run(run_id)
     return {"run": run, "graph": build_graph(run)}
+
+
+def chat(payload: dict) -> dict:
+    message = (payload.get("message") or "").strip()
+    if not message:
+        raise ValueError("message is required")
+    inferred = infer_task(message)
+    proposal = propose_invariants(
+        {
+            "domainName": inferred["domainName"],
+            "authorityMaterial": message,
+            "examples": message,
+        }
+    )
+    run_payload = {
+        "title": inferred["title"],
+        "request": inferred["request"],
+        "domain": inferred["domain"],
+        "inputFiles": inferred["inputFiles"],
+        "sampleKey": inferred["sampleKey"],
+    }
+    created = create_run(run_payload)
+    run = created["run"]
+    assistant = normal_assistant_response(run, proposal)
+    user_id = new_id("msg")
+    assistant_id = new_id("msg")
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, "user", message, run["id"], proposal.get("proposalId"), iso_now()),
+        )
+        conn.execute(
+            "INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?, ?)",
+            (assistant_id, "assistant", assistant, run["id"], proposal.get("proposalId"), iso_now()),
+        )
+    return {
+        "message": {"id": assistant_id, "role": "assistant", "content": assistant},
+        "proposal": proposal,
+        "run": run,
+        "graph": created["graph"],
+    }
+
+
+def infer_task(message: str) -> dict:
+    lower = message.lower()
+    domain = None
+    sample_key = None
+    input_files: list[str] = []
+    request_text = message
+    domain_name = "Custom domain"
+    title = "MotifVM chat run"
+    if any(term in lower for term in ("crar", "tier i", "tier ii", "rwa", "dccb")):
+        domain = "dccb_audit"
+        domain_name = "DCCB CRAR audit"
+        title = "CRAR audit chat"
+        if "mismatch" in lower or "reported" in lower:
+            sample_key = "dccb_mismatch"
+            input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
+            request_text = "Verify CRAR using examples/crar_mismatch.csv"
+        elif "below" in lower or "threshold" in lower:
+            input_files = ["examples/crar_below_threshold.csv"]
+            request_text = "Verify CRAR using examples/crar_below_threshold.csv"
+        else:
+            sample_key = "dccb_good"
+            input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
+            request_text = "Verify CRAR using examples/crar_good.csv"
+    elif any(term in lower for term in ("code", "diff", "auth", "security", "secret", "review")):
+        domain = "code_review"
+        domain_name = "Code review security"
+        title = "Code review chat"
+        if "safe" in lower:
+            sample_key = "code_safe"
+        else:
+            sample_key = "code_auth"
+        input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
+        request_text = SAMPLE_INPUTS[sample_key]["request"]
+    return {
+        "domain": domain,
+        "sampleKey": sample_key,
+        "inputFiles": input_files,
+        "request": request_text,
+        "domainName": domain_name,
+        "title": title,
+    }
+
+
+def normal_assistant_response(run: dict, proposal: dict) -> str:
+    state = run.get("state", {})
+    final = next(
+        (
+            artifact.get("content", {}).get("text")
+            for artifact in state.get("artifacts", [])
+            if artifact.get("type") == "final_output"
+        ),
+        None,
+    )
+    policy = state.get("reasoningPlan", {}).get("verificationPolicy", {}).get("strength", "standard")
+    status = run.get("status")
+    failure = run.get("failureClass")
+    invariant_count = len(proposal.get("invariants", []))
+    if final:
+        prefix = final
+    elif status == "committed_success":
+        prefix = "I ran the task and committed a verified success state."
+    else:
+        prefix = "I ran the task and committed a structured failure state."
+    return (
+        f"{prefix}\n\n"
+        f"Behind the scenes, I bootstrapped {invariant_count} invariant proposal(s), "
+        f"compiled a {policy} MotifVM reasoning plan, and committed `{status}`"
+        f"{f' with `{failure}`' if failure else ''}. "
+        "Open the drill-down graph to inspect the MotifFrame, ReasoningPlan, patches, invariants, and audit artifacts."
+    )
 
 
 def propose_invariants(payload: dict) -> dict:

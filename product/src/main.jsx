@@ -25,8 +25,10 @@ import {
   GitBranch,
   LayoutDashboard,
   Loader2,
+  MessageSquare,
   Play,
   Save,
+  Send,
   ShieldCheck,
   Sparkles,
   Terminal,
@@ -147,9 +149,19 @@ function App() {
   const [domainName, setDomainName] = useState("Healthcare claims policy");
   const [authorityMaterial, setAuthorityMaterial] = useState("Claims must cite source documents. Contradictory evidence should be escalated. Missing required evidence should block final approval.");
   const [proposal, setProposal] = useState(null);
+  const [messages, setMessages] = useState([
+    {
+      id: "welcome",
+      role: "assistant",
+      content:
+        "Give me a domain task, policy note, artifact path, or messy prompt. I will answer normally, while MotifVM quietly identifies invariant proposals, compiles a reasoning plan, and exposes the audit graph underneath."
+    }
+  ]);
+  const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState("");
   const [tab, setTab] = useState("graph");
   const [error, setError] = useState("");
+  const [showDrilldown, setShowDrilldown] = useState(false);
 
   useEffect(() => {
     refresh();
@@ -202,6 +214,39 @@ function App() {
     }
   }
 
+  async function sendChat(event) {
+    event?.preventDefault();
+    const content = chatInput.trim();
+    if (!content) return;
+    const userMessage = { id: `local-${Date.now()}`, role: "user", content };
+    setMessages((items) => [...items, userMessage]);
+    setChatInput("");
+    setLoading("chat");
+    setError("");
+    try {
+      const data = await api("/api/chat", {
+        method: "POST",
+        body: { message: content, history: messages.slice(-6) }
+      });
+      setMessages((items) => [...items, data.message]);
+      setActiveRun(data.run);
+      setGraph(data.graph);
+      setProposal(data.proposal);
+      setShowDrilldown(true);
+      const fresh = await api("/api/runs");
+      setBoot((previous) => ({ ...previous, runs: fresh.runs }));
+      setTab("graph");
+    } catch (exc) {
+      setError(exc.message);
+      setMessages((items) => [
+        ...items,
+        { id: `err-${Date.now()}`, role: "assistant", content: `I could not complete that run: ${exc.message}` }
+      ]);
+    } finally {
+      setLoading("");
+    }
+  }
+
   async function propose() {
     setLoading("proposal");
     setError("");
@@ -241,139 +286,256 @@ function App() {
     <ReactFlowProvider>
       <div className="min-h-screen bg-paper text-ink">
         <Header />
-        <main className="grid min-h-[calc(100vh-64px)] grid-cols-1 pt-16 xl:grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="border-b border-line bg-white/82 p-4 xl:border-b-0 xl:border-r">
-            <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-quiet">
-              <Database className="h-4 w-4" />
-              Local SQLite workspace
-            </div>
-            <div className="grid gap-3">
-              <Field label="Sample artifact">
-                <Select value={sampleKey} onChange={(event) => setSampleKey(event.target.value)}>
-                  {samples.map(([key, sample]) => (
-                    <option value={key} key={key}>
-                      {sample.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Domain profile">
-                <Select value={domain} onChange={(event) => setDomain(event.target.value)}>
-                  <option value="dccb_audit">DCCB CRAR Audit</option>
-                  <option value="code_review">Code Review Security</option>
-                  <option value="">Custom / generic</option>
-                </Select>
-              </Field>
-              <Field label="Task">
-                <Textarea value={request} onChange={(event) => setRequest(event.target.value)} />
-              </Field>
-              <Button variant="primary" onClick={runMotifVM} disabled={loading === "run"}>
-                {loading === "run" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                Run MotifVM
-              </Button>
-            </div>
+        <main className="pt-16">
+          <ChatSurface
+            messages={messages}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            sendChat={sendChat}
+            loading={loading}
+            error={error}
+            samples={samples}
+            onExample={(sample) => setChatInput(`${sample.request}\\n\\nUse ${sample.inputFiles?.join(", ")} and show me the verified reasoning trace.`)}
+          />
 
-            <div className="mt-8">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-xs font-bold uppercase tracking-[0.12em] text-quiet">Run history</div>
-                <Activity className="h-4 w-4 text-quiet" />
-              </div>
-              <div className="grid gap-2">
-                {(boot.runs || []).map((run) => (
-                  <button
-                    key={run.id}
-                    onClick={async () => {
-                      const data = await api(`/api/runs/${run.id}`);
-                      setActiveRun(data.run);
-                      setGraph(data.graph);
-                    }}
-                    className={cx(
-                      "border border-line bg-white p-3 text-left transition hover:border-brand/30 hover:bg-slate-50",
-                      activeRun?.id === run.id && "border-brand/40 bg-brand/5"
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font800">{run.title}</span>
-                      <StatusPill status={run.status} />
-                    </div>
-                    <div className="mt-1 truncate text-xs text-quiet">{run.failure_class || run.domain || "generic"}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </aside>
-
-          <section className="min-w-0">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="border-b border-line bg-white/76 px-6 py-4"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-[0.12em] text-brand">Domain-parametric reasoning workbench</div>
-                  <h1 className="mt-1 font-display text-3xl font850 leading-tight text-ink">
-                    LLM proposes invariants. MotifVM verifies state.
-                  </h1>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setTab("domain")}>
-                    <Sparkles className="h-4 w-4" />
-                    Bootstrap invariants
-                  </Button>
-                  <Button variant="outline" onClick={saveLayout} disabled={!activeRun}>
-                    <Save className="h-4 w-4" />
-                    Save layout
-                  </Button>
-                </div>
-              </div>
-              {error && <div className="mt-3 border border-rose/20 bg-rose/5 px-3 py-2 text-sm text-rose">{error}</div>}
-            </motion.div>
-
-            <div className="grid grid-cols-1 gap-0 2xl:grid-cols-[minmax(0,1fr)_360px]">
-              <div className="min-w-0">
-                <Tabs tab={tab} setTab={setTab} />
-                {tab === "graph" && (
-                  <div className="h-[680px] min-h-[560px] bg-[#f8fafc] 2xl:h-[calc(100vh-200px)]">
-                    <ReactFlow
-                      nodes={nodes}
-                      edges={edges}
-                      onNodesChange={onNodesChange}
-                      onEdgesChange={onEdgesChange}
-                      onConnect={onConnect}
-                      nodeTypes={nodeTypes}
-                      fitView
-                      minZoom={0.25}
-                    >
-                      <Background color="#d9e2ea" gap={24} />
-                      <MiniMap pannable zoomable nodeStrokeWidth={3} />
-                      <Controls />
-                    </ReactFlow>
-                  </div>
-                )}
-                {tab === "trace" && <TracePanel state={state} />}
-                {tab === "audit" && <AuditPanel run={activeRun} />}
-                {tab === "domain" && (
-                  <DomainPanel
-                    domainName={domainName}
-                    setDomainName={setDomainName}
-                    authorityMaterial={authorityMaterial}
-                    setAuthorityMaterial={setAuthorityMaterial}
-                    proposal={proposal}
-                    propose={propose}
-                    loading={loading}
-                  />
-                )}
-              </div>
-
-              <aside className="border-t border-line bg-white p-4 2xl:border-l 2xl:border-t-0">
-                <Inspector run={activeRun} frame={frame} plan={plan} failed={failed} />
-              </aside>
-            </div>
-          </section>
+          <Drilldown
+            activeRun={activeRun}
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            tab={tab}
+            setTab={setTab}
+            state={state}
+            proposal={proposal}
+            domainName={domainName}
+            setDomainName={setDomainName}
+            authorityMaterial={authorityMaterial}
+            setAuthorityMaterial={setAuthorityMaterial}
+            propose={propose}
+            loading={loading}
+            saveLayout={saveLayout}
+            failed={failed}
+            frame={frame}
+            plan={plan}
+            boot={boot}
+            setActiveRun={setActiveRun}
+            setGraph={setGraph}
+            showDrilldown={showDrilldown}
+            setShowDrilldown={setShowDrilldown}
+          />
         </main>
       </div>
     </ReactFlowProvider>
+  );
+}
+
+function ChatSurface({ messages, chatInput, setChatInput, sendChat, loading, error, samples, onExample }) {
+  return (
+    <section className="mx-auto grid min-h-[560px] w-full max-w-5xl content-center px-4 py-10">
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+        <div className="mx-auto mb-4 inline-flex items-center gap-2 border border-brand/20 bg-white px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-brand shadow-sm">
+          <MessageSquare className="h-4 w-4" />
+          MotifVM chat
+        </div>
+        <h1 className="mx-auto max-w-3xl font-display text-4xl font850 leading-[0.98] text-ink md:text-6xl">
+          Ask normally. Inspect the reasoning when it matters.
+        </h1>
+        <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-quiet md:text-lg">
+          Paste policy text, name an artifact, ask for an audit, or describe a domain. MotifVM will answer in plain language while compiling invariants, patches, terminal state, and audit evidence underneath.
+        </p>
+      </motion.div>
+
+      <div className="mx-auto mt-8 w-full max-w-3xl">
+        <div className="mb-4 grid gap-3">
+          {messages.map((message) => (
+            <div key={message.id} className={cx("flex", message.role === "user" ? "justify-end" : "justify-start")}>
+              <div
+                className={cx(
+                  "max-w-[86%] border px-4 py-3 text-sm leading-6 shadow-sm",
+                  message.role === "user"
+                    ? "border-brand/20 bg-brand text-white"
+                    : "border-line bg-white text-slate-700"
+                )}
+              >
+                {message.content}
+              </div>
+            </div>
+          ))}
+          {loading === "chat" && (
+            <div className="flex justify-start">
+              <div className="inline-flex items-center gap-2 border border-line bg-white px-4 py-3 text-sm text-quiet shadow-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Compiling invariants, running patches, checking terminal state...
+              </div>
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={sendChat} className="border border-line bg-white p-2 shadow-soft">
+          <textarea
+            value={chatInput}
+            onChange={(event) => setChatInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                sendChat(event);
+              }
+            }}
+            placeholder="Ask MotifVM to review a policy, verify CRAR, inspect a diff, or bootstrap a new domain..."
+            className="min-h-28 w-full resize-none border-0 bg-transparent px-3 py-3 text-base leading-7 text-ink outline-none placeholder:text-slate-400"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-2 pt-2">
+            <div className="flex flex-wrap gap-2">
+              {samples.slice(0, 3).map(([key, sample]) => (
+                <button
+                  type="button"
+                  key={key}
+                  onClick={() => onExample(sample)}
+                  className="border border-line bg-slate-50 px-2 py-1 text-xs font-semibold text-quiet transition hover:border-brand/30 hover:text-ink"
+                >
+                  {sample.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="primary" disabled={loading === "chat" || !chatInput.trim()}>
+              {loading === "chat" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send
+            </Button>
+          </div>
+        </form>
+        {error && <div className="mt-3 border border-rose/20 bg-rose/5 px-3 py-2 text-sm text-rose">{error}</div>}
+      </div>
+    </section>
+  );
+}
+
+function Drilldown({
+  activeRun,
+  nodes,
+  edges,
+  onNodesChange,
+  onEdgesChange,
+  onConnect,
+  tab,
+  setTab,
+  state,
+  proposal,
+  domainName,
+  setDomainName,
+  authorityMaterial,
+  setAuthorityMaterial,
+  propose,
+  loading,
+  saveLayout,
+  failed,
+  frame,
+  plan,
+  boot,
+  setActiveRun,
+  setGraph,
+  showDrilldown,
+  setShowDrilldown
+}) {
+  if (!activeRun || !showDrilldown) return null;
+  return (
+    <section className="border-t border-line bg-white/80">
+      <div className="mx-auto max-w-[1560px] px-4 py-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-brand">Drill-down layer</div>
+            <h2 className="mt-1 font-display text-2xl font850 text-ink">Artifact, graph, trace, and audit pack</h2>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setTab("domain")}>
+              <Sparkles className="h-4 w-4" />
+              Invariants
+            </Button>
+            <Button variant="outline" onClick={saveLayout} disabled={!activeRun}>
+              <Save className="h-4 w-4" />
+              Save layout
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 overflow-hidden border border-line bg-white shadow-soft 2xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="min-w-0">
+            <Tabs tab={tab} setTab={setTab} />
+            {tab === "graph" && (
+              <div className="h-[680px] min-h-[560px] bg-[#f8fafc] 2xl:h-[calc(100vh-210px)]">
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onEdgesChange={onEdgesChange}
+                  onConnect={onConnect}
+                  nodeTypes={nodeTypes}
+                  fitView
+                  minZoom={0.25}
+                >
+                  <Background color="#d9e2ea" gap={24} />
+                  <MiniMap pannable zoomable nodeStrokeWidth={3} />
+                  <Controls />
+                </ReactFlow>
+              </div>
+            )}
+            {tab === "trace" && <TracePanel state={state} />}
+            {tab === "audit" && <AuditPanel run={activeRun} />}
+            {tab === "domain" && (
+              <DomainPanel
+                domainName={domainName}
+                setDomainName={setDomainName}
+                authorityMaterial={authorityMaterial}
+                setAuthorityMaterial={setAuthorityMaterial}
+                proposal={proposal}
+                propose={propose}
+                loading={loading}
+              />
+            )}
+          </div>
+
+          <aside className="border-t border-line bg-white p-4 2xl:border-l 2xl:border-t-0">
+            <Inspector run={activeRun} frame={frame} plan={plan} failed={failed} />
+            <RecentRuns runs={boot.runs || []} activeRun={activeRun} setActiveRun={setActiveRun} setGraph={setGraph} setShowDrilldown={setShowDrilldown} />
+          </aside>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentRuns({ runs, activeRun, setActiveRun, setGraph, setShowDrilldown }) {
+  return (
+    <section className="mt-5">
+      <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-quiet">
+        <Activity className="h-4 w-4" />
+        Recent runs
+      </div>
+      <div className="grid gap-2">
+        {runs.slice(0, 5).map((run) => (
+          <button
+            key={run.id}
+            onClick={async () => {
+              const data = await api(`/api/runs/${run.id}`);
+              setActiveRun(data.run);
+              setGraph(data.graph);
+              setShowDrilldown(true);
+            }}
+            className={cx(
+              "border border-line bg-white p-3 text-left transition hover:border-brand/30 hover:bg-slate-50",
+              activeRun?.id === run.id && "border-brand/40 bg-brand/5"
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm font800">{run.title}</span>
+              <StatusPill status={run.status} />
+            </div>
+            <div className="mt-1 truncate text-xs text-quiet">{run.failure_class || run.domain || "generic"}</div>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
