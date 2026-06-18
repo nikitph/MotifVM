@@ -138,16 +138,13 @@ function MotifNode({ data }) {
 }
 
 function App() {
-  const [boot, setBoot] = useState({ domains: [], runs: [], samples: {} });
+  const [boot, setBoot] = useState({ domains: [], runs: [], promptStarters: [] });
   const [activeRun, setActiveRun] = useState(null);
   const [graph, setGraph] = useState({ nodes: [], edges: [] });
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
-  const [request, setRequest] = useState("Verify CRAR using examples/crar_mismatch.csv");
-  const [sampleKey, setSampleKey] = useState("dccb_mismatch");
-  const [domain, setDomain] = useState("dccb_audit");
-  const [domainName, setDomainName] = useState("Healthcare claims policy");
-  const [authorityMaterial, setAuthorityMaterial] = useState("Claims must cite source documents. Contradictory evidence should be escalated. Missing required evidence should block final approval.");
+  const [domainName, setDomainName] = useState("Prompt-scaffolded domain");
+  const [authorityMaterial, setAuthorityMaterial] = useState("Paste domain policy, expert notes, acceptance criteria, or examples here. MotifVM will propose invariants from this material.");
   const [proposal, setProposal] = useState(null);
   const [messages, setMessages] = useState([
     {
@@ -168,14 +165,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const sample = boot.samples?.[sampleKey];
-    if (sample) {
-      setRequest(sample.request);
-      setDomain(sample.domain);
-    }
-  }, [sampleKey, boot.samples]);
-
-  useEffect(() => {
     setNodes(graph.nodes || []);
     setEdges(formatEdges(graph.edges || []));
   }, [graph]);
@@ -184,33 +173,8 @@ function App() {
     try {
       const data = await api("/api/bootstrap");
       setBoot(data);
-      if (data.runs?.[0] && !activeRun) {
-        const detail = await api(`/api/runs/${data.runs[0].id}`);
-        setActiveRun(detail.run);
-        setGraph(detail.graph);
-      }
     } catch (exc) {
       setError(exc.message);
-    }
-  }
-
-  async function runMotifVM() {
-    setLoading("run");
-    setError("");
-    try {
-      const data = await api("/api/runs", {
-        method: "POST",
-        body: { request, domain, sampleKey }
-      });
-      setActiveRun(data.run);
-      setGraph(data.graph);
-      const fresh = await api("/api/runs");
-      setBoot((previous) => ({ ...previous, runs: fresh.runs }));
-      setTab("graph");
-    } catch (exc) {
-      setError(exc.message);
-    } finally {
-      setLoading("");
     }
   }
 
@@ -253,7 +217,7 @@ function App() {
     try {
       const data = await api("/api/invariants/propose", {
         method: "POST",
-        body: { domainName, authorityMaterial, examples: request }
+        body: { domainName, authorityMaterial, examples: chatInput || activeRun?.request || authorityMaterial }
       });
       setProposal(data);
       setTab("domain");
@@ -280,7 +244,7 @@ function App() {
   const frame = state.motifFrame || {};
   const plan = state.reasoningPlan || {};
   const failed = (state.invariants || []).filter((item) => !item.passed && item.severity === "error");
-  const samples = Object.entries(boot.samples || {});
+  const starters = boot.promptStarters || [];
 
   return (
     <ReactFlowProvider>
@@ -294,8 +258,8 @@ function App() {
             sendChat={sendChat}
             loading={loading}
             error={error}
-            samples={samples}
-            onExample={(sample) => setChatInput(`${sample.request}\\n\\nUse ${sample.inputFiles?.join(", ")} and show me the verified reasoning trace.`)}
+            starters={starters}
+            onExample={(starter) => setChatInput(starter)}
           />
 
           <Drilldown
@@ -331,7 +295,7 @@ function App() {
   );
 }
 
-function ChatSurface({ messages, chatInput, setChatInput, sendChat, loading, error, samples, onExample }) {
+function ChatSurface({ messages, chatInput, setChatInput, sendChat, loading, error, starters, onExample }) {
   return (
     <section className="mx-auto grid min-h-[560px] w-full max-w-5xl content-center px-4 py-10">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="text-center">
@@ -383,19 +347,19 @@ function ChatSurface({ messages, chatInput, setChatInput, sendChat, loading, err
                 sendChat(event);
               }
             }}
-            placeholder="Ask MotifVM to review a policy, verify CRAR, inspect a diff, or bootstrap a new domain..."
+            placeholder="Give MotifVM the task, policy, artifact path, evidence, or messy domain prompt..."
             className="min-h-28 w-full resize-none border-0 bg-transparent px-3 py-3 text-base leading-7 text-ink outline-none placeholder:text-slate-400"
           />
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-2 pt-2">
             <div className="flex flex-wrap gap-2">
-              {samples.slice(0, 3).map(([key, sample]) => (
+              {starters.slice(0, 3).map((starter) => (
                 <button
                   type="button"
-                  key={key}
-                  onClick={() => onExample(sample)}
+                  key={starter}
+                  onClick={() => onExample(starter)}
                   className="border border-line bg-slate-50 px-2 py-1 text-xs font-semibold text-quiet transition hover:border-brand/30 hover:text-ink"
                 >
-                  {sample.label}
+                  {starter.split(".")[0]}
                 </button>
               ))}
             </div>

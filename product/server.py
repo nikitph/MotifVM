@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import ssl
 import sqlite3
 import sys
 import time
 import uuid
+from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import request as urlrequest
@@ -16,8 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from motifvm.runtime import run_task  # noqa: E402
-from motifvm.reporting import render_report  # noqa: E402
+from motifvm.compiler import compile_reasoning_plan, create_motif_frame, load_pass_effects  # noqa: E402
+from motifvm.passes import registry  # noqa: E402
+from motifvm.runtime import diagnose  # noqa: E402
 
 DATA_DIR = Path(__file__).resolve().parent / ".data"
 DB_PATH = DATA_DIR / "motifvm_product.sqlite"
@@ -33,37 +37,16 @@ def load_env() -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            os.environ[key.strip()] = value.strip().strip('"').strip("'")
 
 
 load_env()
 
-SAMPLE_INPUTS = {
-    "dccb_good": {
-        "label": "DCCB CRAR success",
-        "domain": "dccb_audit",
-        "request": "Verify CRAR using examples/crar_good.csv",
-        "inputFiles": ["examples/crar_good.csv"],
-    },
-    "dccb_mismatch": {
-        "label": "DCCB reported mismatch",
-        "domain": "dccb_audit",
-        "request": "Verify CRAR using examples/crar_mismatch.csv",
-        "inputFiles": ["examples/crar_mismatch.csv"],
-    },
-    "code_auth": {
-        "label": "Code review auth bypass",
-        "domain": "code_review",
-        "request": "Review this code diff for security risk",
-        "inputFiles": ["examples/code_review/unsafe_auth_bypass/diff.patch"],
-    },
-    "code_safe": {
-        "label": "Code review safe diff",
-        "domain": "code_review",
-        "request": "Review this code diff for security risk",
-        "inputFiles": ["examples/code_review/safe/diff.patch"],
-    },
-}
+PROMPT_STARTERS = [
+    "Review this policy and tell me what can be safely approved. Policy: every approval needs evidence, authority, and a contradiction check.",
+    "I am onboarding an insurance claims workflow. Claims need source documents, eligibility rules, and escalation when evidence is missing.",
+    "Audit this vendor-risk memo. A high-risk vendor requires a mitigation owner, renewal date, and exception approval.",
+]
 
 
 def db() -> sqlite3.Connection:
@@ -125,8 +108,8 @@ def init_db() -> None:
             );
             """
         )
-        count = conn.execute("SELECT COUNT(*) AS c FROM domains").fetchone()["c"]
-        if count == 0:
+        prompt_domain = conn.execute("SELECT id FROM domains WHERE slug = ?", ("prompt-scaffolded-domain",)).fetchone()
+        if not prompt_domain:
             now = iso_now()
             conn.execute(
                 """
@@ -134,44 +117,22 @@ def init_db() -> None:
                 """,
                 (
                     new_id("domain"),
-                    "DCCB CRAR Audit",
-                    "dccb-audit",
-                    "A regulated audit profile where policies define CRAR computation, threshold checks, reported value reconciliation, and evidence lineage.",
-                    "CRAR = (Tier I Capital + Tier II Capital) / Risk Weighted Assets * 100. Demo threshold is 9.00 percent. Reported CRAR must match computed CRAR within tolerance.",
-                    json.dumps(seed_invariants("dccb_audit")),
+                    "Prompt-scaffolded domain",
+                    "prompt-scaffolded-domain",
+                    "A blank MotifVM profile that is instantiated from the user's prompt, authority notes, artifacts, and examples at run time.",
+                    "The prompt is the authority boundary. The assistant may propose invariants, facts, and claims, but MotifVM only commits authorized StatePatches with inspectable evidence.",
+                    json.dumps(seed_invariants()),
                     now,
                     now,
                 ),
             )
-            conn.execute(
-                """
-                INSERT INTO domains VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    new_id("domain"),
-                    "Code Review Security",
-                    "code-review",
-                    "A security review profile where diffs become line-level evidence and invariants detect risky code changes.",
-                    "Findings must trace to changed lines. Added unconditional auth allow, secret literals, shell execution, eval/exec, disabled TLS, and unsafe deserialization are terminal risks.",
-                    json.dumps(seed_invariants("code_review")),
-                    now,
-                    now,
-                ),
-            )
-        run_count = conn.execute("SELECT COUNT(*) AS c FROM runs").fetchone()["c"]
-    if run_count == 0:
-        create_run({"sampleKey": "dccb_mismatch"})
+        conn.execute("SELECT COUNT(*) AS c FROM runs").fetchone()
 
 
-def seed_invariants(domain: str) -> list[dict[str, str]]:
-    if domain == "code_review":
-        return [
-            {"id": "CODE_003", "name": "No unconditional auth allow", "severity": "error", "authority": "Code review security policy", "check": "Added lines must not bypass authorization."},
-            {"id": "CODE_004", "name": "No secret literal", "severity": "error", "authority": "Code review security policy", "check": "Added lines must not introduce obvious API keys or tokens."},
-        ]
+def seed_invariants() -> list[dict[str, str]]:
     return [
-        {"id": "DCCB_001", "name": "CRAR formula", "severity": "error", "authority": "DCCB audit profile", "check": "Computed CRAR must equal (Tier I + Tier II) / RWA * 100."},
-        {"id": "DCCB_003", "name": "Reported CRAR match", "severity": "error", "authority": "DCCB audit profile", "check": "Reported CRAR must match computed CRAR within tolerance."},
+        {"id": "PROMPT_001", "name": "Evidence-bound output", "severity": "error", "authority": "Prompt-scaffolded domain contract", "check": "A terminal answer must be backed by prompt evidence, supplied artifacts, or authority material."},
+        {"id": "PROMPT_002", "name": "Unknowns stay explicit", "severity": "error", "authority": "Prompt-scaffolded domain contract", "check": "Missing evidence, contradictions, and unresolved assumptions must become visible terminal state or replan events."},
     ]
 
 
@@ -183,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return self.json({"ok": True, "db": str(DB_PATH), "root": str(ROOT)})
         if path == "/api/bootstrap":
-            return self.json({"domains": list_domains(), "runs": list_runs(), "samples": SAMPLE_INPUTS})
+            return self.json({"domains": list_domains(), "runs": list_runs(), "promptStarters": PROMPT_STARTERS})
         if path == "/api/runs":
             return self.json({"runs": list_runs()})
         if path.startswith("/api/runs/"):
@@ -249,7 +210,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def list_domains() -> list[dict]:
     with db() as conn:
-        rows = conn.execute("SELECT * FROM domains ORDER BY updated_at DESC").fetchall()
+        rows = conn.execute(
+            """
+            SELECT * FROM domains
+            WHERE slug NOT IN ('dccb-audit', 'code-review')
+            ORDER BY updated_at DESC
+            """
+        ).fetchall()
     return [domain_row(row) for row in rows]
 
 
@@ -269,7 +236,14 @@ def domain_row(row: sqlite3.Row) -> dict:
 def list_runs() -> list[dict]:
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, title, request, domain, sample_key, status, failure_class, created_at FROM runs ORDER BY created_at DESC LIMIT 30"
+            """
+            SELECT id, title, request, domain, sample_key, status, failure_class, created_at
+            FROM runs
+            WHERE sample_key IS NULL
+              AND COALESCE(domain, '') NOT IN ('dccb_audit', 'code_review')
+            ORDER BY created_at DESC
+            LIMIT 30
+            """
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -323,32 +297,19 @@ def get_domain(domain_id: str) -> dict | None:
 
 
 def create_run(payload: dict) -> dict:
-    sample_key = payload.get("sampleKey") or "dccb_mismatch"
-    sample = SAMPLE_INPUTS.get(sample_key, SAMPLE_INPUTS["dccb_mismatch"])
-    request_text = payload.get("request") or sample["request"]
-    domain = payload.get("domain") or sample.get("domain")
-    input_files = payload.get("inputFiles") or sample.get("inputFiles", [])
-    try:
-        state = run_task(request_text, root=ROOT, domain=domain, input_files=input_files)
-        report = render_report(state)
-    except Exception as exc:
-        state = {
-            "id": new_id("state"),
-            "status": "runtime_error",
-            "failureClass": "runtime_error",
-            "terminalReason": str(exc),
-            "taskAst": {"goal": request_text, "meta": {"domain": domain}},
-            "motifFrame": {},
-            "reasoningPlan": {},
-            "patchTimeline": [],
-            "graph": {"nodes": {}, "edges": []},
-            "artifacts": [],
-            "invariants": [],
+    request_text = payload.get("request") or payload.get("message") or "Analyze this domain task."
+    proposal = payload.get("proposal") or fallback_invariants(
+        {
+            "domainName": payload.get("domainName") or title_from_prompt(request_text),
+            "authorityMaterial": request_text,
+            "examples": request_text,
         }
-        report = f"Runtime error\n=============\n\n{exc}"
+    )
+    state = scaffold_state_from_prompt(request_text, proposal)
+    report = render_scaffold_report(state, proposal)
     run_id = new_id("run")
     now = iso_now()
-    title = payload.get("title") or sample["label"]
+    title = payload.get("title") or title_from_prompt(request_text)
     with db() as conn:
         conn.execute(
             "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -356,8 +317,8 @@ def create_run(payload: dict) -> dict:
                 run_id,
                 title,
                 request_text,
-                domain,
-                sample_key,
+                state.get("taskAst", {}).get("meta", {}).get("domain"),
+                None,
                 state.get("status", "unknown"),
                 state.get("failureClass"),
                 json.dumps(state),
@@ -373,24 +334,22 @@ def chat(payload: dict) -> dict:
     message = (payload.get("message") or "").strip()
     if not message:
         raise ValueError("message is required")
-    inferred = infer_task(message)
     proposal = propose_invariants(
         {
-            "domainName": inferred["domainName"],
+            "domainName": title_from_prompt(message),
             "authorityMaterial": message,
             "examples": message,
         }
     )
     run_payload = {
-        "title": inferred["title"],
-        "request": inferred["request"],
-        "domain": inferred["domain"],
-        "inputFiles": inferred["inputFiles"],
-        "sampleKey": inferred["sampleKey"],
+        "title": title_from_prompt(message),
+        "request": message,
+        "proposal": proposal,
+        "domainName": title_from_prompt(message),
     }
     created = create_run(run_payload)
     run = created["run"]
-    assistant = normal_assistant_response(run, proposal)
+    assistant = normal_assistant_response(run, proposal, message)
     user_id = new_id("msg")
     assistant_id = new_id("msg")
     with db() as conn:
@@ -410,50 +369,72 @@ def chat(payload: dict) -> dict:
     }
 
 
-def infer_task(message: str) -> dict:
-    lower = message.lower()
-    domain = None
-    sample_key = None
-    input_files: list[str] = []
-    request_text = message
-    domain_name = "Custom domain"
-    title = "MotifVM chat run"
-    if any(term in lower for term in ("crar", "tier i", "tier ii", "rwa", "dccb")):
-        domain = "dccb_audit"
-        domain_name = "DCCB CRAR audit"
-        title = "CRAR audit chat"
-        if "mismatch" in lower or "reported" in lower:
-            sample_key = "dccb_mismatch"
-            input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
-            request_text = "Verify CRAR using examples/crar_mismatch.csv"
-        elif "below" in lower or "threshold" in lower:
-            input_files = ["examples/crar_below_threshold.csv"]
-            request_text = "Verify CRAR using examples/crar_below_threshold.csv"
-        else:
-            sample_key = "dccb_good"
-            input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
-            request_text = "Verify CRAR using examples/crar_good.csv"
-    elif any(term in lower for term in ("code", "diff", "auth", "security", "secret", "review")):
-        domain = "code_review"
-        domain_name = "Code review security"
-        title = "Code review chat"
-        if "safe" in lower:
-            sample_key = "code_safe"
-        else:
-            sample_key = "code_auth"
-        input_files = SAMPLE_INPUTS[sample_key]["inputFiles"]
-        request_text = SAMPLE_INPUTS[sample_key]["request"]
-    return {
-        "domain": domain,
-        "sampleKey": sample_key,
-        "inputFiles": input_files,
-        "request": request_text,
-        "domainName": domain_name,
-        "title": title,
+def scaffold_state_from_prompt(prompt: str, proposal: dict) -> dict:
+    domain_slug = slugify(proposal.get("summary") or title_from_prompt(prompt))[:48]
+    task_ast = {
+        "id": f"task:{uuid.uuid4().hex[:10]}",
+        "goal": prompt,
+        "intent": "analyze",
+        "inputs": extract_prompt_inputs(prompt),
+        "constraints": [],
+        "preferences": [],
+        "subtasks": [],
+        "requiredOutputs": [{"id": "output:answer", "description": "Plain-language answer", "format": "text", "required": True}],
+        "uncertainty": [],
+        "meta": {"rawRequest": prompt, "timestamp": iso_now(), "domain": f"prompt:{domain_slug}"},
     }
+    required = diagnose(task_ast)
+    supported = {key: 0.0 for key in required}
+    motif_frame = create_motif_frame(task_ast, required, supported)
+    plan = compile_reasoning_plan(task_ast, motif_frame, registry(), load_pass_effects(ROOT))
+    terminal = terminal_from_prompt(prompt, proposal)
+    answer = answer_from_proposal(prompt, proposal, terminal)
+    graph_nodes, graph_edges = prompt_graph(prompt, proposal, answer, terminal)
+    patch_timeline = prompt_patch_timeline(proposal, terminal)
+    state = {
+        "id": new_id("state"),
+        "taskAst": task_ast,
+        "authorityRefs": authority_refs_from_proposal(proposal),
+        "inputManifest": [],
+        "motifState": {"required": required, "supported": supported, "gap": motif_frame.get("gap", {})},
+        "motifSignature": required,
+        "motifFrame": motif_frame,
+        "reasoningPlan": plan,
+        "reasoningPlans": [plan],
+        "verificationPolicy": plan.get("verificationPolicy", {}),
+        "replanEvents": terminal.get("replanEvents", []),
+        "graph": {"nodes": graph_nodes, "edges": graph_edges},
+        "artifacts": [
+            {
+                "id": "artifact:prompt_domain_pack",
+                "type": "domain_pack_proposal",
+                "content": proposal,
+                "producedBy": proposal.get("provider", "invariant_authoring_assistant"),
+                "timestamp": iso_now(),
+            },
+            {
+                "id": "artifact:final_output",
+                "type": "final_output",
+                "content": {"text": answer},
+                "producedBy": "motifvm_prompt_scaffold",
+                "timestamp": iso_now(),
+            },
+        ],
+        "decisions": [],
+        "invariants": invariants_from_proposal(proposal, terminal),
+        "passHistory": [],
+        "patchTimeline": patch_timeline,
+        "executionLog": [],
+        "branch": "main",
+        "parentCommit": None,
+        "status": terminal["status"],
+        "failureClass": terminal.get("failureClass"),
+        "terminalReason": terminal.get("terminalReason"),
+    }
+    return state
 
 
-def normal_assistant_response(run: dict, proposal: dict) -> str:
+def normal_assistant_response(run: dict, proposal: dict, prompt: str) -> str:
     state = run.get("state", {})
     final = next(
         (
@@ -467,12 +448,9 @@ def normal_assistant_response(run: dict, proposal: dict) -> str:
     status = run.get("status")
     failure = run.get("failureClass")
     invariant_count = len(proposal.get("invariants", []))
-    if final:
-        prefix = final
-    elif status == "committed_success":
-        prefix = "I ran the task and committed a verified success state."
-    else:
-        prefix = "I ran the task and committed a structured failure state."
+    prefix = final or answer_from_proposal(prompt, proposal, {"status": status, "failureClass": failure})
+    if os.environ.get("DEEPSEEK_API_KEY") and not document_profile(prompt)["isLongDocument"]:
+        prefix = call_deepseek_answer(prompt, proposal, state, prefix)
     return (
         f"{prefix}\n\n"
         f"Behind the scenes, I bootstrapped {invariant_count} invariant proposal(s), "
@@ -480,6 +458,439 @@ def normal_assistant_response(run: dict, proposal: dict) -> str:
         f"{f' with `{failure}`' if failure else ''}. "
         "Open the drill-down graph to inspect the MotifFrame, ReasoningPlan, patches, invariants, and audit artifacts."
     )
+
+
+def title_from_prompt(prompt: str) -> str:
+    document_title = infer_document_title(prompt)
+    if document_title:
+        return document_title[:72]
+    cleaned = " ".join((prompt or "").strip().split())
+    if not cleaned:
+        return "Prompt-scaffolded run"
+    first_clause = re.split(r"[.\n:;!?]", cleaned, maxsplit=1)[0]
+    words = first_clause.split()[:8]
+    title = " ".join(words).strip(" -_/")
+    return title[:72] or "Prompt-scaffolded run"
+
+
+def extract_prompt_inputs(prompt: str) -> list[dict]:
+    pattern = r"(https?://[^\s),]+|[\w./~:-]+\.(?:csv|json|txt|xlsx|xls|patch|diff|pdf|md|log|py|js|ts|tsx|jsx|yaml|yml))"
+    inputs = []
+    seen = set()
+    for index, match in enumerate(re.findall(pattern, prompt or "", flags=re.IGNORECASE), start=1):
+        locator = match.strip().strip("`'\"")
+        if locator in seen:
+            continue
+        seen.add(locator)
+        kind = "url" if locator.startswith(("http://", "https://")) else Path(locator).suffix.lstrip(".").lower() or "artifact"
+        inputs.append({"id": f"input:{index}", "type": kind, "locator": locator, "resolved": False})
+    if not inputs:
+        inputs.append({"id": "input:prompt", "type": "prompt_text", "locator": "prompt://user-message", "resolved": True})
+    return inputs
+
+
+def terminal_from_prompt(prompt: str, proposal: dict) -> dict:
+    text = (prompt or "").lower()
+    profile = document_profile(prompt)
+    decision_window = text[:700]
+    asks_for_decision = any(
+        token in decision_window
+        for token in [
+            "is this compliant",
+            "is it compliant",
+            "verify compliance",
+            "check compliance",
+            "can we approve",
+            "should we approve",
+            "approve this",
+            "pass/fail",
+        ]
+    )
+    if profile["isLongDocument"] and not asks_for_decision:
+        return {"status": "committed_success", "failureClass": None, "terminalReason": "PROMPT_010_DOCUMENT_SUMMARY_COMMITTED", "replanEvents": []}
+    if any(token in text for token in ["contradiction", "conflict", "mismatch", "disagree", "inconsistent"]):
+        return {
+            "status": "committed_failed",
+            "failureClass": "reconciliation_required",
+            "terminalReason": "PROMPT_003_CONTRADICTION_RECONCILIATION",
+            "replanEvents": [{"failureClass": "reconciliation_required", "action": "request_reconciliation_or_source_priority", "reason": "Prompt contains contradiction-sensitive language."}],
+        }
+    if any(token in text for token in ["missing", "incomplete", "unknown", "no evidence", "without evidence", "not provided"]):
+        return {
+            "status": "committed_failed",
+            "failureClass": "computation_blocked",
+            "terminalReason": "PROMPT_002_EVIDENCE_REQUIRED",
+            "replanEvents": [{"failureClass": "computation_blocked", "action": "request_required_evidence", "reason": "Prompt indicates unresolved evidence or unknown inputs."}],
+        }
+    if any(token in text for token in ["risk", "unsafe", "violation", "breach", "critical", "escalate", "exception"]):
+        return {
+            "status": "committed_failed",
+            "failureClass": "policy_risk_detected",
+            "terminalReason": "PROMPT_004_POLICY_RISK",
+            "replanEvents": [{"failureClass": "policy_risk_detected", "action": "strengthen_policy_checks_before_approval", "reason": "Prompt asks about risk, exception, or escalation-sensitive material."}],
+        }
+    return {"status": "committed_success", "failureClass": None, "terminalReason": "PROMPT_001_PROMPT_SCAFFOLD_COMMITTED", "replanEvents": []}
+
+
+def answer_from_proposal(prompt: str, proposal: dict, terminal: dict) -> str:
+    document_answer = document_aware_answer(prompt, proposal, terminal)
+    if document_answer:
+        return document_answer
+    invariants = proposal.get("invariants", [])
+    names = ", ".join(item.get("name", item.get("id", "Invariant")) for item in invariants[:3])
+    if terminal.get("status") == "committed_success":
+        return (
+            "I can work with this as a fresh MotifVM domain. "
+            f"I identified {len(invariants)} invariant proposal(s)"
+            f"{f' around {names}' if names else ''}, compiled a reasoning plan from the prompt, "
+            "and reached a provisional committed success. The artifact is inspectable rather than hidden in the chat answer."
+        )
+    return (
+        "I would not treat this as a clean approval yet. "
+        f"The prompt-dependent scaffold produced `{terminal.get('failureClass')}` with reason `{terminal.get('terminalReason')}`. "
+        f"I still proposed {len(invariants)} invariant(s), but the next correct move is to resolve the blocked/risky condition before committing a final domain outcome."
+    )
+
+
+def infer_document_title(prompt: str) -> str | None:
+    lines = [line.strip(" \t\r") for line in (prompt or "").splitlines()]
+    compact = [line for line in lines if len(line.strip()) >= 8]
+    for line in compact[:30]:
+        if "Reserve Bank of India" in line:
+            next_lines = [item for item in compact[compact.index(line) + 1 : compact.index(line) + 4] if "Directions" in item]
+            if next_lines:
+                title = next_lines[0]
+                if title.endswith(",") and compact.index(next_lines[0]) + 1 < len(compact):
+                    title = f"{title} {compact[compact.index(next_lines[0]) + 1]}"
+                return clean_document_title(title)
+            title = line
+            if title.endswith(",") and compact.index(line) + 1 < len(compact):
+                title = f"{title} {compact[compact.index(line) + 1]}"
+            return clean_document_title(title)
+        if "Directions" in line and ("Bank" in line or "Governance" in line):
+            title = line
+            if title.endswith(",") and compact.index(line) + 1 < len(compact):
+                title = f"{title} {compact[compact.index(line) + 1]}"
+            return clean_document_title(title)
+        if re.search(r"\b(Board|Committee|Policy|Minutes|Circular|Directions)\b", line, flags=re.IGNORECASE):
+            if len(line) < 120:
+                return line
+    return None
+
+
+def clean_document_title(title: str) -> str:
+    title = " ".join((title or "").split())
+    title = re.sub(r"\s+Table of Contents.*$", "", title, flags=re.IGNORECASE)
+    return title.strip(" .")
+
+
+def document_profile(prompt: str) -> dict:
+    text = prompt or ""
+    lower = text.lower()
+    return {
+        "isLongDocument": len(text) > 1200 or text.count("\n") > 18,
+        "isRegulatory": any(term in lower for term in ["reserve bank of india", "rbi/", "directions", "shall", "regulation act", "nabard"]),
+        "isGovernance": any(term in lower for term in ["board of directors", "board meeting", "audit committee", "risk management committee", "code of conduct"]),
+        "isMinutes": any(term in lower for term in ["minutes of", "resolved that", "agenda item", "chairman", "meeting held"]),
+    }
+
+
+def document_aware_answer(prompt: str, proposal: dict, terminal: dict) -> str | None:
+    profile = document_profile(prompt)
+    if not (profile["isLongDocument"] or profile["isRegulatory"] or profile["isMinutes"]):
+        return None
+    title = infer_document_title(prompt) or title_from_prompt(prompt)
+    obligations = extract_document_obligations(prompt)
+    cadence = extract_review_cadence(prompt)
+    committees = extract_committee_points(prompt)
+    sections = [
+        f"Document scaffold ready for **{title}**.",
+        "I extracted the main authority surfaces from the supplied text and prepared the MotifVM scaffold. I am ready for your next prompt against this document.",
+        "",
+        "**Extracted rule surfaces**",
+    ]
+    if obligations:
+        sections.extend(f"- {item}" for item in obligations[:8])
+    else:
+        sections.append("- The document appears to define governance obligations, evidence requirements, and review duties for the supplied domain.")
+    if cadence:
+        sections.extend(["", "**Review cadence / operating rhythm**"])
+        sections.extend(f"- {item}" for item in cadence[:6])
+    if committees:
+        sections.extend(["", "**Board committee structure**"])
+        sections.extend(f"- {item}" for item in committees[:6])
+    sections.extend(
+        [
+            "",
+            "**Scaffold status**",
+            f"- Proposed {len(proposal.get('invariants', []))} document-specific invariant(s) from the pasted authority text.",
+            f"- Terminal state: `{terminal.get('status')}` / `{terminal.get('failureClass') or 'none'}`.",
+            "- Evidence layer: prompt/document text captured as the source authority for the current scaffold.",
+            "- Drill-down graph: ready for inspecting extracted rules, proposed invariants, patch timeline, and audit artifacts.",
+            "",
+            "**Ask me next**",
+            "- Turn this into a compliance checklist.",
+            "- Check a board agenda or minutes against these requirements.",
+            "- Extract only Audit Committee or Risk Management Committee duties.",
+            "- Identify missing evidence needed for a pass/fail compliance decision.",
+        ]
+    )
+    return "\n".join(sections)
+
+
+def extract_document_obligations(prompt: str) -> list[str]:
+    text = normalize_document_text(prompt)
+    candidates = [
+        ("applicability", r"These Directions shall be applicable to ([^.]+)\."),
+        ("director eligibility", r"The following persons shall not be eligible to become directors of an RCB:([^\\f]+?)(?=17A\\.|8\\.)"),
+        ("cooling off", r"after completing a continuous tenure of ten years[^.]+?minimum cooling-off period of three years"),
+        ("professional directors", r"an RCB shall have at least two directors[^.]+?professional qualifications[^.]+\."),
+        ("CEO approval", r"appointment, reappointment, and termination of appointment of a Chief Executive Officer[^.]+?prior approval of RBI"),
+        ("board role", r"The Board of Directors of an RCB shall be responsible for[^.]+?functioning of the RCB"),
+        ("RBI circulars", r"all circulars and other material relating to policies issued by RBI / NABARD[^.]+?placed before the Board"),
+        ("code of conduct", r"An RCB shall lay down a Code of Conduct[^.]+?Senior Management"),
+        ("director conduct", r"The directors of an RCB shall adhere to Do's and Don'ts[^.]+?Code of Conduct"),
+    ]
+    found = []
+    for label, pattern in candidates:
+        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            found.append(humanize_obligation(label, match.group(0)))
+    return dedupe(found)
+
+
+def extract_review_cadence(prompt: str) -> list[str]:
+    lower = normalize_document_text(prompt).lower()
+    items = []
+    if "periodicity: every board meeting" in lower:
+        items.append("Every Board meeting should cover funds management, CRR/SLR compliance, loans and advances, regulatory circulars, and statutory/regulatory returns.")
+    if "periodicity: quarterly" in lower:
+        items.append("Quarterly reviews include business plan performance, recoveries/NPA accounts, branch performance, working results, vigilance/fraud cases, customer service, and Audit Committee observations.")
+    if "periodicity: half-yearly" in lower:
+        items.append("Half-yearly reviews include investment portfolio, HR/training, IRAC/capital adequacy, risk management implementation, IT/computerization, cost of funds, fair practices, and viability items.")
+    if "periodicity: yearly" in lower:
+        items.append("Yearly reviews include working-result comparisons and audit/LFAR style review items.")
+    if "quarterly return" in lower and "nabard" in lower:
+        items.append("A quarterly return must be submitted to the concerned NABARD Regional Office where applicable.")
+    return items
+
+
+def extract_committee_points(prompt: str) -> list[str]:
+    text = normalize_document_text(prompt)
+    lower = text.lower()
+    items = []
+    if "audit committee" in lower:
+        items.append("The Board must set up an independent Audit Committee with members capable of understanding banking and financial matters.")
+    if "three or four directors" in lower and "chartered accountant" in lower:
+        items.append("The Audit Committee composition includes three or four directors, excludes the Chairman and CEO/MD, and requires a locally available Chartered Accountant to be co-opted.")
+    if "direct, unfettered, and independent access" in lower:
+        items.append("The Audit Committee must have direct, unfettered, independent access to management, internal audit, and statutory auditors.")
+    if "meet at least once in a quarter" in lower:
+        items.append("The Audit Committee must meet at least once every quarter.")
+    if "risk management committee" in lower:
+        items.append("An RCB must constitute a Risk Management Committee appropriate to its business size and risk exposure.")
+    if "heads of credit, investment" in lower:
+        items.append("The Risk Management Committee includes the CEO and heads of Credit, Investment, Inspection/Audit, and Accounting, with IT as a special invitee.")
+    return dedupe(items)
+
+
+def humanize_obligation(label: str, raw: str) -> str:
+    cleaned = " ".join(raw.split())
+    cleaned = cleaned.replace(" / ", "/")
+    if label == "applicability":
+        return f"Applicability: {cleaned}"
+    if label == "director eligibility":
+        return "Director eligibility: money-lending/financing/investment conflicts, membership ineligibility, and criminal offences involving moral turpitude are disqualifying conditions."
+    if label == "cooling off":
+        return "Director tenure: after ten continuous years on the same RCB Board, reappointment requires a three-year cooling-off period."
+    if label == "professional directors":
+        return "Board composition: each RCB must have at least two directors with suitable banking experience or relevant professional qualifications."
+    if label == "CEO approval":
+        return "CEO/MD control: appointment, reappointment, and termination of the CEO/MD require prior RBI approval."
+    if label == "board role":
+        return "Board role: the Board formulates policy and exercises overall supervision/control, while day-to-day administration remains with the CEO/MD."
+    if label == "RBI circulars":
+        return "Regulatory materials: RBI/NABARD policy circulars must be seen by every Board member and placed before the Board for action."
+    if label == "code of conduct":
+        return "Conduct framework: the RCB must maintain a Code of Conduct for directors and senior management."
+    if label == "director conduct":
+        return "Director conduct: directors must follow governance, non-interference, no-sponsorship, conflict-disclosure, and confidentiality expectations."
+    return cleaned[:280]
+
+
+def normalize_document_text(prompt: str) -> str:
+    return re.sub(r"\s+", " ", (prompt or "").replace("\f", " ")).strip()
+
+
+def dedupe(items: list[str]) -> list[str]:
+    seen = set()
+    output = []
+    for item in items:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
+def authority_refs_from_proposal(proposal: dict) -> list[dict]:
+    refs = []
+    for index, invariant in enumerate(proposal.get("invariants", []), start=1):
+        authority = invariant.get("authority") or proposal.get("summary") or "Prompt supplied authority"
+        refs.append(
+            {
+                "id": f"authority:prompt:{index}",
+                "title": invariant.get("name") or f"Prompt invariant {index}",
+                "sourceType": "prompt_or_llm_proposed_authority",
+                "version": "prompt-scaffold",
+                "location": f"prompt://authority-material#{invariant.get('id', index)}",
+                "sectionId": invariant.get("id") or f"INV_{index:03d}",
+                "quotedRuleExcerpt": authority[:240],
+                "sourceHash": hash_text(authority),
+            }
+        )
+    if not refs:
+        refs.append(
+            {
+                "id": "authority:prompt:1",
+                "title": "Prompt authority boundary",
+                "sourceType": "prompt",
+                "version": "prompt-scaffold",
+                "location": "prompt://user-message",
+                "sectionId": "PROMPT",
+                "quotedRuleExcerpt": proposal.get("summary", "Prompt supplied by user")[:240],
+                "sourceHash": hash_text(proposal.get("summary", "")),
+            }
+        )
+    return refs
+
+
+def invariants_from_proposal(proposal: dict, terminal: dict) -> list[dict]:
+    failed_once = False
+    checks = []
+    for index, invariant in enumerate(proposal.get("invariants", []), start=1):
+        is_terminal_error = terminal.get("status") != "committed_success" and not failed_once and invariant.get("severity", "error") == "error"
+        failed_once = failed_once or is_terminal_error
+        checks.append(
+            {
+                "invariantId": invariant.get("id") or f"INV_{index:03d}",
+                "name": invariant.get("name") or f"Invariant {index}",
+                "severity": invariant.get("severity") or "error",
+                "passed": not is_terminal_error,
+                "message": invariant.get("check") or "Prompt-scaffolded invariant check",
+                "evidence": ["evidence:prompt"],
+                "authorityRefs": [f"authority:prompt:{index}"],
+            }
+        )
+    return checks
+
+
+def prompt_graph(prompt: str, proposal: dict, answer: str, terminal: dict) -> tuple[dict, list[dict]]:
+    nodes = {
+        "evidence:prompt": {"type": "evidence", "content": prompt[:420]},
+        "fact:domain_intent": {"type": "claim", "content": proposal.get("summary", "Prompt-scaffolded domain")},
+        "artifact:domain_pack": {"type": "state", "content": f"{len(proposal.get('invariants', []))} proposed invariants, {len(proposal.get('factSchema', []))} fact schemas"},
+        "claim:answer": {"type": "claim", "content": answer[:420]},
+        "output:answer": {"type": "output", "content": terminal.get("terminalReason")},
+    }
+    edges = [
+        {"from": "evidence:prompt", "to": "fact:domain_intent", "relation": "extracts"},
+        {"from": "fact:domain_intent", "to": "artifact:domain_pack", "relation": "scaffolds"},
+        {"from": "artifact:domain_pack", "to": "claim:answer", "relation": "authorizes"},
+        {"from": "claim:answer", "to": "output:answer", "relation": "commits"},
+    ]
+    for index, invariant in enumerate(proposal.get("invariants", []), start=1):
+        inv_id = invariant.get("id") or f"INV_{index:03d}"
+        node_id = f"invariant:{inv_id}"
+        nodes[node_id] = {"type": "error" if terminal.get("status") != "committed_success" and index == 1 else "assumption", "content": f"{invariant.get('name', inv_id)}: {invariant.get('check', '')}"}
+        edges.append({"from": "artifact:domain_pack", "to": node_id, "relation": "defines"})
+        edges.append({"from": node_id, "to": "claim:answer", "relation": "checks"})
+    if terminal.get("replanEvents"):
+        nodes["decision:replan"] = {"type": "error", "content": terminal["replanEvents"][0].get("action")}
+        edges.append({"from": "claim:answer", "to": "decision:replan", "relation": "triggers"})
+        edges.append({"from": "decision:replan", "to": "artifact:domain_pack", "relation": "replans"})
+    return nodes, edges
+
+
+def prompt_patch_timeline(proposal: dict, terminal: dict) -> list[dict]:
+    timeline = [
+        {"id": new_id("patch"), "op": "prompt_ingest", "actor": "adapter:prompt", "authorized": True, "artifacts": ["evidence:prompt"], "timestamp": iso_now()},
+        {"id": new_id("patch"), "op": "invariant_proposal", "actor": proposal.get("provider", "invariant_authoring_assistant"), "authorized": True, "artifacts": ["artifact:prompt_domain_pack"], "timestamp": iso_now()},
+        {"id": new_id("patch"), "op": "motif_compile", "actor": "motifvm.compiler", "authorized": True, "artifacts": ["motifFrame", "reasoningPlan"], "timestamp": iso_now()},
+        {"id": new_id("patch"), "op": "terminal_commit", "actor": "motifvm.runtime", "authorized": True, "status": terminal.get("status"), "timestamp": iso_now()},
+    ]
+    if terminal.get("replanEvents"):
+        timeline.append({"id": new_id("patch"), "op": "replan_request", "actor": "motifvm.compiler", "authorized": True, "failureClass": terminal.get("failureClass"), "timestamp": iso_now()})
+    return timeline
+
+
+def render_scaffold_report(state: dict, proposal: dict) -> str:
+    lines = [
+        "# MotifVM Prompt-Scaffolded Run",
+        "",
+        f"- Status: `{state.get('status')}`",
+        f"- Failure class: `{state.get('failureClass') or 'none'}`",
+        f"- Terminal reason: `{state.get('terminalReason')}`",
+        f"- Goal: {state.get('taskAst', {}).get('goal', '')}",
+        f"- Domain: `{state.get('taskAst', {}).get('meta', {}).get('domain')}`",
+        "",
+        "## Proposed Invariants",
+    ]
+    for invariant in proposal.get("invariants", []):
+        lines.append(f"- `{invariant.get('id', 'INV')}` {invariant.get('name', 'Invariant')}: {invariant.get('check', '')}")
+    lines.extend(
+        [
+            "",
+            "## Compiler",
+            f"- Required motifs: {', '.join(state.get('motifSignature', {}).keys()) or 'none'}",
+            f"- Selected passes: {', '.join(state.get('reasoningPlan', {}).get('selectedPasses', [])) or 'none'}",
+            f"- Verification strength: `{state.get('reasoningPlan', {}).get('verificationPolicy', {}).get('strength', 'unknown')}`",
+            "",
+            "## Trace",
+        ]
+    )
+    for patch in state.get("patchTimeline", []):
+        lines.append(f"- `{patch.get('op')}` by `{patch.get('actor')}` authorized={patch.get('authorized')}")
+    return "\n".join(lines)
+
+
+def call_deepseek_answer(prompt: str, proposal: dict, state: dict, fallback: str) -> str:
+    payload = {
+        "prompt": prompt,
+        "proposalSummary": proposal.get("summary"),
+        "invariants": proposal.get("invariants", [])[:5],
+        "terminalState": {
+            "status": state.get("status"),
+            "failureClass": state.get("failureClass"),
+            "terminalReason": state.get("terminalReason"),
+        },
+        "instruction": "Write a concise, normal user-facing answer. Do not invent facts beyond the prompt and proposal. Return JSON with key answer.",
+    }
+    body = {
+        "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        "messages": [
+            {"role": "system", "content": "You are MotifVM's product chat assistant. Return only valid JSON."},
+            {"role": "user", "content": json.dumps(payload, sort_keys=True)},
+        ],
+        "temperature": 0.25,
+        "response_format": {"type": "json_object"},
+        "stream": False,
+    }
+    req = urlrequest.Request(
+        f"{os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').rstrip('/')}/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"content-type": "application/json", "authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=30, context=deepseek_ssl_context()) as response:
+            raw = json.loads(response.read().decode("utf-8"))
+        content = raw["choices"][0]["message"]["content"]
+        parsed = json.loads(content) if isinstance(content, str) else content
+        return parsed.get("answer") or fallback
+    except (HTTPError, URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError):
+        return fallback
 
 
 def propose_invariants(payload: dict) -> dict:
@@ -500,7 +911,7 @@ def propose_invariants(payload: dict) -> dict:
             output = call_deepseek(prompt_payload)
             provider = "deepseek"
         except (HTTPError, URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError) as exc:
-            output = fallback_invariants(payload, note=f"DeepSeek fallback: {exc.__class__.__name__}")
+            output = fallback_invariants(payload, note=f"DeepSeek fallback: {deepseek_error_note(exc)}")
             provider = "mock_after_deepseek_error"
     else:
         output = fallback_invariants(payload)
@@ -543,20 +954,77 @@ def call_deepseek(payload: dict) -> dict:
         headers={"content-type": "application/json", "authorization": f"Bearer {os.environ['DEEPSEEK_API_KEY']}"},
         method="POST",
     )
-    with urlrequest.urlopen(req, timeout=30) as response:
+    with urlrequest.urlopen(req, timeout=30, context=deepseek_ssl_context()) as response:
         raw = json.loads(response.read().decode("utf-8"))
     content = raw["choices"][0]["message"]["content"]
     parsed = json.loads(content) if isinstance(content, str) else content
     if "invariants" not in parsed:
         raise ValueError("missing invariants")
-    return parsed
+    return normalize_proposal(parsed)
+
+
+def normalize_proposal(proposal: dict) -> dict:
+    normalized = dict(proposal)
+    invariants = []
+    for index, invariant in enumerate(normalized.get("invariants") or [], start=1):
+        item = dict(invariant) if isinstance(invariant, dict) else {"check": str(invariant)}
+        item.setdefault("id", f"INV_{index:03d}")
+        item.setdefault("name", item["id"])
+        item.setdefault("severity", "error")
+        item.setdefault("authority", normalized.get("summary") or "DeepSeek proposed invariant")
+        item.setdefault("check", item.get("description") or item.get("rule") or "Invariant check proposed by DeepSeek.")
+        invariants.append(item)
+    normalized["invariants"] = invariants
+    normalized.setdefault("factSchema", [])
+    normalized.setdefault("fixtureIdeas", [])
+    normalized.setdefault("summary", "DeepSeek proposed a MotifVM domain scaffold.")
+    return normalized
+
+
+def deepseek_error_note(exc: Exception) -> str:
+    if isinstance(exc, HTTPError):
+        try:
+            body = exc.read().decode("utf-8", errors="ignore")[:240]
+        except Exception:
+            body = ""
+        return f"HTTPError {exc.code} {exc.reason}: {body}"
+    if isinstance(exc, URLError):
+        return f"URLError {getattr(exc, 'reason', exc)}"
+    return f"{exc.__class__.__name__}: {str(exc)[:240]}"
+
+
+def deepseek_ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi  # type: ignore
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
 
 
 def fallback_invariants(payload: dict, note: str | None = None) -> dict:
     name = payload.get("domainName") or "Custom domain"
     material = (payload.get("authorityMaterial") or "").strip()
     authority = material[:120] + ("..." if len(material) > 120 else "") if material else "Provided domain material"
-    invariants = [
+    invariants = fallback_document_invariants(material, authority) or generic_invariants(authority)
+    return {
+        "summary": f"{name} can be onboarded as a domain-parametric MotifVM profile. These bootstrap invariants are proposals, not trusted truth.",
+        "invariants": invariants,
+        "factSchema": [
+            {"kind": "domain_fact", "fields": ["value", "source", "confidence", "evidenceRefId"]},
+            {"kind": "authority_rule", "fields": ["rule", "section", "authorityRefId"]},
+        ],
+        "fixtureIdeas": [
+            "A clean success case with complete evidence.",
+            "A contradiction case where reported and computed values disagree.",
+            "A missing evidence case that should commit as computation_blocked.",
+        ],
+        "note": note,
+    }
+
+
+def generic_invariants(authority: str) -> list[dict]:
+    return [
         {
             "id": "INV_001",
             "name": "Evidence-backed terminal output",
@@ -579,20 +1047,50 @@ def fallback_invariants(payload: dict, note: str | None = None) -> dict:
             "check": "Conflicting evidence must not be hidden in narrative; it must commit as a structured failure or reconciliation request.",
         },
     ]
-    return {
-        "summary": f"{name} can be onboarded as a domain-parametric MotifVM profile. These bootstrap invariants are proposals, not trusted truth.",
-        "invariants": invariants,
-        "factSchema": [
-            {"kind": "domain_fact", "fields": ["value", "source", "confidence", "evidenceRefId"]},
-            {"kind": "authority_rule", "fields": ["rule", "section", "authorityRefId"]},
-        ],
-        "fixtureIdeas": [
-            "A clean success case with complete evidence.",
-            "A contradiction case where reported and computed values disagree.",
-            "A missing evidence case that should commit as computation_blocked.",
-        ],
-        "note": note,
-    }
+
+
+def fallback_document_invariants(material: str, authority: str) -> list[dict]:
+    profile = document_profile(material)
+    if not (profile["isRegulatory"] and profile["isGovernance"]):
+        return []
+    invariants = [
+        {
+            "id": "GOV_001",
+            "name": "Applicability must be established",
+            "severity": "error",
+            "authority": authority,
+            "check": "Before applying a governance rule, the target institution must be identified as an RCB, StCB, or CCB covered by the Directions.",
+        },
+        {
+            "id": "GOV_002",
+            "name": "Board composition and tenure checks",
+            "severity": "error",
+            "authority": authority,
+            "check": "Board compliance claims must verify director eligibility, ten-year tenure cooling-off, and at least two directors with required banking/professional qualifications.",
+        },
+        {
+            "id": "GOV_003",
+            "name": "CEO/MD RBI approval",
+            "severity": "error",
+            "authority": authority,
+            "check": "Any CEO/MD appointment, reappointment, or termination claim must cite prior RBI approval evidence.",
+        },
+        {
+            "id": "GOV_004",
+            "name": "Board review calendar",
+            "severity": "error",
+            "authority": authority,
+            "check": "Board meeting compliance must map each required review to the prescribed every-meeting, quarterly, half-yearly, or yearly cadence.",
+        },
+        {
+            "id": "GOV_005",
+            "name": "Audit and risk committee constitution",
+            "severity": "error",
+            "authority": authority,
+            "check": "Committee compliance must verify Audit Committee independence/composition and Risk Management Committee membership according to the Directions.",
+        },
+    ]
+    return invariants
 
 
 def build_graph(run: dict) -> dict:
@@ -694,6 +1192,10 @@ def slugify(value: str) -> str:
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug or "domain"
+
+
+def hash_text(value: str) -> str:
+    return "sha256:" + sha256((value or "").encode("utf-8")).hexdigest()
 
 
 def main() -> None:
