@@ -23,6 +23,21 @@ DATA_DIR = Path(__file__).resolve().parent / ".data"
 DB_PATH = DATA_DIR / "motifvm_product.sqlite"
 PORT = int(os.environ.get("MOTIFVM_PRODUCT_API_PORT", "8787"))
 
+
+def load_env() -> None:
+    for path in (ROOT / ".env", Path(__file__).resolve().parent / ".env"):
+        if not path.exists():
+            continue
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env()
+
 SAMPLE_INPUTS = {
     "dccb_good": {
         "label": "DCCB CRAR success",

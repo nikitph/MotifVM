@@ -9,3 +9,6 @@ __pycache__/
 *.out
 .venv/
 .idea/
+.env
+.env.*
+!.env.example
