@@ -16,10 +16,12 @@ from motifvm.patch_auth import authorize_patch
 from motifvm.runtime import (
     check_pass_preconditions,
     diagnose,
+    emit_llm_narrative,
     initial_state,
     parse_request,
     run_task,
     select_passes,
+    validate_llm_patch,
 )
 from motifvm.schema import validate_state_patch
 
@@ -321,9 +323,83 @@ class RuntimeTests(unittest.TestCase):
                 domain="dccb_audit",
                 llm_provider="mock",
             )
-            self.assertEqual([call["callType"] for call in state["llmCalls"]], ["CALL_PARSE", "CALL_DIAGNOSE"])
+            self.assertEqual([call["callType"] for call in state["llmCalls"]], ["CALL_PARSE", "CALL_DIAGNOSE", "CALL_EMIT"])
             export_path = export_audit_pack(root, "001")
             self.assertTrue((export_path / "llm_calls.json").exists())
+
+    def test_mock_llm_emit_adds_bounded_narrative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            examples = root / "examples"
+            examples.mkdir()
+            csv_path = examples / "crar_good.csv"
+            with csv_path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["component", "amount"])
+                writer.writerow(["tier1", "120"])
+                writer.writerow(["tier2", "40"])
+                writer.writerow(["rwa", "1000"])
+                writer.writerow(["reported_crar", "16"])
+                writer.writerow(["threshold", "9"])
+
+            state = run_task(
+                "Verify CRAR using examples/crar_good.csv",
+                root=root,
+                domain="dccb_audit",
+                llm_provider="mock",
+            )
+
+            self.assertEqual(state["status"], "committed_success")
+            self.assertIn("CALL_EMIT", [call["callType"] for call in state["llmCalls"]])
+            narrative = [artifact for artifact in state["artifacts"] if artifact["type"] == "llm_narrative"][0]
+            self.assertFalse(narrative["content"]["mayAlterTerminalStatus"])
+            self.assertTrue(any(item["passName"] == "CALL_EMIT" and item["role"] == "llm" for item in state["patchTimeline"]))
+
+    def test_llm_patch_authorization_rejects_forbidden_emit(self):
+        task = parse_request("Review this code diff for security risk", "code_review")
+        state = initial_state(task, diagnose(task))
+        patch = StatePatch(task_updates={"status": "committed_success"})
+
+        errors = validate_llm_patch(state, patch)
+
+        self.assertTrue(any("modify_task_ast" in error for error in errors))
+
+    def test_repo_code_review_detects_helper_indirection_and_exports_timeline(self):
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for dirname in ("examples", "config", "authority_sources", "static"):
+                shutil.copytree(repo / dirname, root / dirname)
+
+            state = run_task(
+                "Review this repository diff for security risk",
+                root=root,
+                domain="code_review",
+                input_files=["examples/code_review/repo_helper"],
+            )
+
+            self.assertEqual(state["status"], "committed_failed")
+            self.assertEqual(state["failureClass"], "security_risk_detected")
+            review = [artifact for artifact in state["artifacts"] if artifact["type"] == "code_review_result"][0]
+            self.assertEqual(review["content"]["repoPath"], str(root / "examples" / "code_review" / "repo_helper"))
+            self.assertIn("auth.py", review["content"]["changedFiles"])
+            self.assertTrue(any(finding["id"] == "finding:code:auth_helper_bypass" for finding in review["content"]["findings"]))
+            self.assertTrue(any(str(item["path"]).endswith("auth.py") for item in state["inputManifest"]))
+            export_path = export_audit_pack(root, state["parentCommit"])
+            self.assertTrue((export_path / "patch_timeline.json").exists())
+            self.assertTrue((export_path / "patch_timeline.md").exists())
+            ok, issues = verify_pack(export_path)
+            self.assertTrue(ok, issues)
+
+    def test_authority_refs_include_section_citations(self):
+        task = parse_request("Verify CRAR using examples/crar_good.csv", "dccb_audit")
+        state = initial_state(task, diagnose(task))
+
+        authority = state["authorityRefs"][0]
+
+        self.assertEqual(authority["sectionId"], "crar-formula")
+        self.assertIn("quotedRuleExcerpt", authority)
+        self.assertIn("sectionHash", authority)
 
     def test_schema_validation_rejects_bad_patch(self):
         errors = validate_state_patch({"nodesToAdd": "bad", "motifSupportDelta": {"nope": -1}})

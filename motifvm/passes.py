@@ -79,8 +79,8 @@ def resolve_inputs(state: dict[str, Any], root: Path) -> PassResult:
             )
         )
         if resolved:
-            digest = _sha256(path)
-            rows_read = _count_csv_rows(path) if path.suffix.lower() == ".csv" else None
+            digest = _tree_hash(path) if path.is_dir() else _sha256(path)
+            rows_read = _count_csv_rows(path) if path.is_file() and path.suffix.lower() == ".csv" else None
             artifacts.append(
                 {
                     "id": f"artifact:input:{item['id']}",
@@ -90,12 +90,17 @@ def resolve_inputs(state: dict[str, Any], root: Path) -> PassResult:
                         "path": str(path),
                         "sha256": digest,
                         "rowsRead": rows_read,
+                        "kind": "repo" if path.is_dir() else "file",
                         "readAt": utc_now(),
                     },
                     "producedBy": "resolve_inputs",
                     "timestamp": utc_now(),
                 }
             )
+            if path.is_dir():
+                repo_artifact, file_artifacts = _repo_review_artifacts(item["id"], path)
+                artifacts.append(repo_artifact)
+                artifacts.extend(file_artifacts)
     patch = StatePatch(
         nodes_to_add=nodes,
         edges_to_add=[edge(f"input:{i['id']}", "goal:root", "supports") for i in updated_inputs],
@@ -243,6 +248,27 @@ def build_evidence_graph(state: dict[str, Any], root: Path) -> PassResult:
     nodes = []
     edges = []
     for artifact in state.get("artifacts", []):
+        if artifact.get("type") == "repo_review_input":
+            diff_nodes, diff_edges = _diff_evidence_nodes_from_text(
+                artifact["content"].get("diffText", ""),
+                artifact["content"].get("repoPath", "repo"),
+                artifact["content"].get("inputId"),
+                artifact["content"].get("diffHash"),
+            )
+            nodes.extend(diff_nodes)
+            edges.extend(diff_edges)
+            nodes.append(
+                node(
+                    f"evidence:repo:{Path(artifact['content'].get('repoPath', 'repo')).name}",
+                    "evidence",
+                    f"Repository diff contains {len(artifact['content'].get('changedFiles', []))} changed file(s).",
+                    "tool",
+                    "build_evidence_graph",
+                    1.0,
+                    {"artifactId": artifact["id"], "changedFiles": artifact["content"].get("changedFiles", [])},
+                )
+            )
+            continue
         if artifact.get("type") != "resolved_input":
             continue
         path = Path(artifact["content"]["path"])
@@ -741,10 +767,11 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
         for item in state["taskAst"].get("inputs", [])
         if item.get("resolved") and Path(item["location"]).suffix.lower() == ".patch"
     ]
-    if not diff_paths:
+    repo_review = next((artifact for artifact in state.get("artifacts", []) if artifact.get("type") == "repo_review_input"), None)
+    if not diff_paths and repo_review is None:
         return PassResult("failed", StatePatch(), error="No resolved diff.patch input was available.")
-    path = diff_paths[0]
-    added = _parse_added_lines(path)
+    path = diff_paths[0] if diff_paths else Path(repo_review["content"]["repoPath"]) / "diff.patch"
+    added = _parse_added_lines(path) if diff_paths else _parse_added_lines_from_text(repo_review["content"].get("diffText", ""), str(path))
     findings = []
     for item in added:
         lowered = item["text"].lower().strip()
@@ -785,6 +812,8 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
             findings.append(_code_finding("finding:code:sql_interpolation", "sql_interpolation", "SQL appears to use string interpolation.", item))
         if "pickle.loads" in lowered or "yaml.load(" in lowered:
             findings.append(_code_finding("finding:code:unsafe_deserialization", "unsafe_deserialization", "Unsafe deserialization API detected.", item))
+    helper_bypass = _helper_auth_bypass_findings(added)
+    findings.extend(helper_bypass)
     risk = "unsafe" if findings else "safe"
     evidence_ids = [finding["evidenceNodeId"] for finding in findings] or [
         item["evidenceNodeId"] for item in added[:1]
@@ -817,6 +846,8 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
         "type": "code_review_result",
         "content": {
             "source": str(path),
+            "repoPath": repo_review["content"].get("repoPath") if repo_review else None,
+            "changedFiles": repo_review["content"].get("changedFiles", []) if repo_review else [item["path"] for item in added],
             "risk": risk,
             "findings": findings,
             "lineage": lineage,
@@ -947,10 +978,88 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _tree_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    for child in sorted(item for item in path.rglob("*") if item.is_file() and ".git" not in item.parts):
+        digest.update(str(child.relative_to(path)).encode("utf-8"))
+        digest.update(_sha256(child).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _repo_review_artifacts(input_id: str, repo_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    diff_text = _repo_diff_text(repo_path)
+    diff_hash = hashlib.sha256(diff_text.encode("utf-8")).hexdigest()
+    changed_files = _changed_files_from_diff(diff_text)
+    file_artifacts = []
+    for index, rel_path in enumerate(changed_files, start=1):
+        file_path = repo_path / rel_path
+        if not file_path.exists() or not file_path.is_file():
+            continue
+        file_artifacts.append(
+            {
+                "id": f"artifact:input:{input_id}:file:{index}",
+                "type": "resolved_input",
+                "content": {
+                    "inputId": f"{input_id}:file:{index}",
+                    "path": str(file_path),
+                    "sha256": _sha256(file_path),
+                    "rowsRead": None,
+                    "kind": "repo_changed_file",
+                    "readAt": utc_now(),
+                },
+                "producedBy": "resolve_inputs",
+                "timestamp": utc_now(),
+            }
+        )
+    repo_artifact = {
+        "id": f"artifact:repo_review:{input_id}",
+        "type": "repo_review_input",
+        "content": {
+            "inputId": input_id,
+            "repoPath": str(repo_path),
+            "diffText": diff_text,
+            "diffHash": diff_hash,
+            "changedFiles": changed_files,
+        },
+        "producedBy": "resolve_inputs",
+        "timestamp": utc_now(),
+    }
+    return repo_artifact, file_artifacts
+
+
+def _repo_diff_text(repo_path: Path) -> str:
+    diff_file = repo_path / "diff.patch"
+    if diff_file.exists():
+        return diff_file.read_text(encoding="utf-8")
+    snapshots = sorted(repo_path.glob("*.patch"))
+    if snapshots:
+        return snapshots[0].read_text(encoding="utf-8")
+    return ""
+
+
+def _changed_files_from_diff(diff_text: str) -> list[str]:
+    changed = []
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/"):
+            path = line.removeprefix("+++ b/")
+            if path not in changed:
+                changed.append(path)
+    return changed
+
+
 def _diff_evidence_nodes(path: Path, input_ref: str | None, input_hash: str | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _diff_evidence_nodes_from_text(path.read_text(encoding="utf-8"), str(path), input_ref, input_hash)
+
+
+def _diff_evidence_nodes_from_text(
+    diff_text: str,
+    source: str,
+    input_ref: str | None,
+    input_hash: str | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
-    for item in _parse_added_lines(path):
+    for item in _parse_added_lines_from_text(diff_text, source):
         evidence_ref = {
             "id": item["evidenceNodeId"],
             "inputId": input_ref,
@@ -975,11 +1084,15 @@ def _diff_evidence_nodes(path: Path, input_ref: str | None, input_hash: str | No
 
 
 def _parse_added_lines(path: Path) -> list[dict[str, Any]]:
+    return _parse_added_lines_from_text(path.read_text(encoding="utf-8"), str(path))
+
+
+def _parse_added_lines_from_text(diff_text: str, source: str) -> list[dict[str, Any]]:
     added = []
-    current_file = path.name
+    current_file = Path(source).name
     new_line = 0
     current_function = None
-    for physical_line, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for physical_line, raw in enumerate(diff_text.splitlines(), start=1):
         if raw.startswith("+++ b/"):
             current_file = raw.removeprefix("+++ b/")
             continue
@@ -1013,6 +1126,29 @@ def _parse_added_lines(path: Path) -> list[dict[str, Any]]:
             if not raw.startswith("\\"):
                 new_line += 1
     return added
+
+
+def _helper_auth_bypass_findings(added: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    helper_names = set()
+    for item in added:
+        text = item["text"].strip().lower()
+        function = (item.get("function") or "").lower()
+        if text == "return true" and function and not any(word in function for word in ("auth", "admin", "permission", "allow")):
+            helper_names.add(function)
+    findings = []
+    for item in added:
+        text = item["text"].strip().lower()
+        function = (item.get("function") or "").lower()
+        if any(name and f"{name}(" in text for name in helper_names) and any(word in function for word in ("auth", "admin", "permission", "allow")):
+            findings.append(
+                _code_finding(
+                    "finding:code:auth_helper_bypass",
+                    "auth_bypass",
+                    "Authorization-sensitive function delegates to helper that returns unconditional True.",
+                    item,
+                )
+            )
+    return findings
 
 
 def _is_auth_bypass(item: dict[str, Any], added: list[dict[str, Any]]) -> bool:

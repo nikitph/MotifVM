@@ -33,6 +33,8 @@ def export_audit_pack(root: Path, commit_id: str, output_dir: Path | None = None
     write_json(target / "llm_calls.json", {"llmCalls": state.get("llmCalls", [])})
     write_json(target / "inputs_manifest.json", {"inputs": state.get("inputManifest", [])})
     write_json(target / "lineage.json", _lineage_payload(state))
+    write_json(target / "patch_timeline.json", {"patches": state.get("patchTimeline", [])})
+    write_text(target / "patch_timeline.md", _patch_timeline_markdown(state))
 
     reconciliation = [
         artifact
@@ -48,6 +50,27 @@ def export_audit_pack(root: Path, commit_id: str, output_dir: Path | None = None
     if explorer.exists():
         shutil.copyfile(explorer, target / "graph_explorer.html")
     return target
+
+
+def _patch_timeline_markdown(state: dict[str, Any]) -> str:
+    lines = ["# Patch Timeline", ""]
+    for index, item in enumerate(state.get("patchTimeline", []), start=1):
+        status = "authorized" if item.get("authorized") else "rejected"
+        lines.append(f"## {index}. {item.get('passName')} ({item.get('role')}, {status})")
+        if item.get("authorizationErrors"):
+            lines.append(f"- authorization errors: {'; '.join(item.get('authorizationErrors', []))}")
+        lines.append(f"- nodes added: {len(item.get('nodesAdded', []))}")
+        lines.append(f"- edges added: {len(item.get('edgesAdded', []))}")
+        lines.append(f"- artifacts added: {len(item.get('artifactsAdded', []))}")
+        lines.append(f"- invariants: {item.get('invariantsBefore')} -> {item.get('invariantsAfter')}")
+        delta = item.get("motifSupportDelta", {})
+        if delta:
+            rendered = ", ".join(f"{key}+{value}" for key, value in sorted(delta.items()))
+            lines.append(f"- motif support delta: {rendered}")
+        lines.append("")
+    if len(lines) == 2:
+        lines.append("No patches recorded.")
+    return "\n".join(lines).rstrip()
 
 
 def _lineage_payload(state: dict[str, Any]) -> dict[str, Any]:

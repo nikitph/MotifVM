@@ -1,5 +1,41 @@
 # Release Notes
 
+## Frozen Proof Table
+
+| Version | Core proof |
+| --- | --- |
+| 0.1.8 | kernel + two-domain audit packs |
+| 0.2.5 | provider boundary + authority hashing + eval |
+| 0.3.5 | adversarial reliability + patch authorization + pack verifier |
+| 0.4.5 | repository-scale inputs + LLM narrative boundary + authority section citations + patch timeline + adversarial-100 |
+
+## v0.4.5
+
+MotifVM v0.4.5 completes the 0.4.x scale and integration track. The runtime can now review repository-style code inputs, export patch timelines, cite authority sections, run a 100-case adversarial suite, and use DeepSeek or the mock provider for bounded final narrative emission without letting the model alter terminal facts.
+
+### Added
+
+- Repository input resolver for code review.
+- Changed-file manifest entries for repository diffs.
+- Multi-file diff evidence extraction and helper-indirection auth-bypass detection.
+- Bounded `CALL_EMIT` LLM narrative artifact.
+- Explicit LLM patch authorization for non-critical narrative emission.
+- Section-level authority citations with `sectionId`, `quotedRuleExcerpt`, `effectiveDate`, `retrievedAt`, and `sectionHash`.
+- Audit-pack patch timeline exports:
+  - `patch_timeline.json`
+  - `patch_timeline.md`
+- Graph explorer patch timeline view.
+- `make adversarial-100` and `python3 -m motifvm adversarial-100`.
+- External demo readiness docs:
+  - `docs/demo_script.md`
+  - `docs/architecture_deep_dive.md`
+  - `docs/threat_model.md`
+  - `docs/limitations.md`
+
+### Verification
+
+See `docs/results_v0_4_5.md` for the detailed run report.
+
 ## v0.3.5
 
 MotifVM v0.3.5 completes the 0.3.x hardening track: adversarial evaluation, failure taxonomy, patch authorization, independent audit-pack verification, a small realistic dataset, and a public demo package.

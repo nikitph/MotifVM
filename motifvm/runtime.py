@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 import uuid
-import hashlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .authority import authority_ref
 from .invariants import run_invariants
 from .failure import classify_failure
 from .llm import DeepSeekLLMClient, MockLLMClient, StructuredCallSpec
@@ -28,7 +28,7 @@ def parse_request(request: str, domain: str | None = None) -> dict[str, Any]:
         detected_domain = "code_review"
     inputs = []
     seen = set()
-    for token in re.findall(r"(?<!\w)([./~\w-]+\.(?:csv|json|txt|xlsx))(?!\w)", request):
+    for token in re.findall(r"(?<!\w)([./~\w-]+\.(?:csv|json|txt|xlsx|patch))(?!\w)", request):
         if token not in seen:
             seen.add(token)
             inputs.append(
@@ -146,69 +146,64 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
     authorities = []
     if task_ast.get("meta", {}).get("domain") == "dccb_audit":
         authorities = [
-            {
-                "id": "domain_profile:dccb:crar_formula",
-                "sourceName": "DCCB audit domain profile - CRAR formula",
-                "sourceType": "domain_profile",
-                "version": "0.1.3",
-                "effectiveDate": None,
-                "location": "authority_sources/dccb/crar_rules.md#crar-formula",
-                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
-                "confidence": 0.8,
-            },
-            {
-                "id": "domain_profile:dccb:crar_threshold",
-                "sourceName": "DCCB audit domain profile - CRAR threshold",
-                "sourceType": "domain_profile",
-                "version": "0.1.3",
-                "effectiveDate": None,
-                "location": "authority_sources/dccb/crar_rules.md#threshold",
-                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
-                "confidence": 0.8,
-            },
-            {
-                "id": "domain_profile:dccb:reported_crar_match",
-                "sourceName": "DCCB audit domain profile - reported CRAR consistency",
-                "sourceType": "domain_profile",
-                "version": "0.1.3",
-                "effectiveDate": None,
-                "location": "authority_sources/dccb/crar_rules.md#reported-value-consistency",
-                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
-                "confidence": 0.8,
-            },
+            authority_ref(
+                "domain_profile:dccb:crar_formula",
+                "DCCB audit domain profile - CRAR formula",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/dccb/crar_rules.md#crar-formula",
+                "crar-formula",
+                "CRAR = (Tier I Capital + Tier II Capital) / Risk Weighted Assets * 100.",
+            ),
+            authority_ref(
+                "domain_profile:dccb:crar_threshold",
+                "DCCB audit domain profile - CRAR threshold",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/dccb/crar_rules.md#threshold",
+                "threshold",
+                "The demo profile uses 9.00 percent as the CRAR threshold.",
+            ),
+            authority_ref(
+                "domain_profile:dccb:reported_crar_match",
+                "DCCB audit domain profile - reported CRAR consistency",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/dccb/crar_rules.md#reported-value-consistency",
+                "reported-value-consistency",
+                "If a reported CRAR value is present, it must match the recomputed CRAR within the runtime tolerance.",
+            ),
         ]
     elif task_ast.get("meta", {}).get("domain") == "code_review":
         authorities = [
-            {
-                "id": "authority:code_review:security_policy",
-                "sourceName": "Code review security policy",
-                "sourceType": "domain_profile",
-                "version": "0.1.8",
-                "effectiveDate": None,
-                "location": "authority_sources/code_review/security_policy.md",
-                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
-                "confidence": 0.8,
-            },
-            {
-                "id": "authority:code_review:review_policy",
-                "sourceName": "Code review policy",
-                "sourceType": "domain_profile",
-                "version": "0.1.8",
-                "effectiveDate": None,
-                "location": "authority_sources/code_review/security_policy.md",
-                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
-                "confidence": 0.8,
-            },
-            {
-                "id": "authority:code_review:test_policy",
-                "sourceName": "Code review test policy",
-                "sourceType": "domain_profile",
-                "version": "0.1.8",
-                "effectiveDate": None,
-                "location": "authority_sources/code_review/security_policy.md",
-                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
-                "confidence": 0.7,
-            },
+            authority_ref(
+                "authority:code_review:security_policy",
+                "Code review security policy",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/code_review/security_policy.md#security-risks",
+                "security-risks",
+                "The review profile flags high-confidence security risks in added diff lines:",
+            ),
+            authority_ref(
+                "authority:code_review:review_policy",
+                "Code review policy",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/code_review/security_policy.md#review-lineage",
+                "review-lineage",
+                "Every review finding must trace to an input file hash and line-level evidence.",
+            ),
+            authority_ref(
+                "authority:code_review:test_policy",
+                "Code review test policy",
+                "domain_profile",
+                "0.4.5",
+                "authority_sources/code_review/security_policy.md#test-recording",
+                "test-recording",
+                "The review artifact must record whether test evidence was available.",
+                confidence=0.7,
+            ),
         ]
     return {
         "id": f"state:{uuid.uuid4().hex[:10]}",
@@ -226,22 +221,12 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
         "decisions": [],
         "invariants": [],
         "passHistory": [],
+        "patchTimeline": [],
         "executionLog": [],
         "branch": "main",
         "parentCommit": None,
         "status": "planning",
     }
-
-
-def _file_hash_if_exists(location: str) -> str | None:
-    path = Path(location)
-    if not path.exists():
-        return None
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def compute_gap(required: dict[str, float], supported: dict[str, float]) -> dict[str, float]:
@@ -319,6 +304,75 @@ def validate_llm_patch(state: dict[str, Any], patch: StatePatch) -> list[str]:
     return errors
 
 
+def emit_llm_narrative(state: dict[str, Any], llm_provider: str | None) -> dict[str, Any]:
+    if llm_provider not in {"mock", "deepseek"}:
+        return state
+    final_text = next(
+        (
+            artifact.get("content", {}).get("text")
+            for artifact in state.get("artifacts", [])
+            if artifact.get("type") == "final_output"
+        ),
+        "",
+    )
+    client = MockLLMClient() if llm_provider == "mock" else DeepSeekLLMClient()
+    narrative, record = client.call_structured(
+        StructuredCallSpec(
+            "CALL_EMIT",
+            {},
+            {"type": "object", "required": ["text"]},
+            0.2,
+            1,
+            fallback=lambda payload: {"text": payload["fallbackText"]},
+        ),
+        {
+            "status": state.get("status"),
+            "terminalReason": state.get("terminalReason"),
+            "failureClass": state.get("failureClass"),
+            "fallbackText": final_text,
+            "deterministicReport": final_text,
+        },
+    )
+    state.setdefault("llmCalls", []).append(record)
+    patch = StatePatch(
+        artifacts_to_add=[
+            {
+                "id": "artifact:llm:narrative",
+                "type": "llm_narrative",
+                "content": {
+                    "text": narrative.get("text", final_text),
+                    "comparedAgainst": "artifact:final_output",
+                    "mayAlterTerminalStatus": False,
+                    "mayAlterInvariants": False,
+                    "mayAlterInputManifest": False,
+                    "mayAlterAuthorityRefs": False,
+                },
+                "producedBy": "CALL_EMIT",
+                "timestamp": utc_now(),
+            }
+        ]
+    )
+    errors = validate_llm_patch(state, patch)
+    if errors:
+        state.setdefault("patchTimeline", []).append(
+            _patch_timeline_record("CALL_EMIT", "llm", patch, False, errors, len(state.get("invariants", [])), len(state.get("invariants", [])))
+        )
+        state.setdefault("executionLog", []).append(
+            {
+                "timestamp": utc_now(),
+                "phase": "synthesize",
+                "event": "llm_patch_rejected",
+                "details": {"failureClass": "llm_patch_rejected", "errors": errors},
+            }
+        )
+        return state
+    next_state = apply_patch(state, patch)
+    next_state.setdefault("patchTimeline", []).append(
+        _patch_timeline_record("CALL_EMIT", "llm", patch, True, [], len(state.get("invariants", [])), len(state.get("invariants", [])))
+    )
+    return next_state
+
+
 def check_pass_preconditions(state: dict[str, Any], compiler_pass: CompilerPass) -> list[str]:
     errors: list[str] = []
     node_types = {
@@ -359,6 +413,35 @@ def apply_patch(state: dict[str, Any], patch: StatePatch) -> dict[str, Any]:
         supported[key] = min(1.0, round(supported.get(key, 0.0) + delta, 4))
     next_state["motifState"]["gap"] = compute_gap(next_state["motifState"]["required"], supported)
     return next_state
+
+
+def _patch_timeline_record(
+    pass_name: str,
+    role: str,
+    patch: StatePatch,
+    authorized: bool,
+    errors: list[str] | None,
+    before_invariants: int,
+    after_invariants: int,
+) -> dict[str, Any]:
+    return {
+        "passName": pass_name,
+        "role": role,
+        "authorized": authorized,
+        "authorizationErrors": errors or [],
+        "nodesAdded": [item.get("id") for item in patch.nodes_to_add],
+        "nodesUpdated": [item.get("id") for item in patch.nodes_to_update],
+        "edgesAdded": [
+            {"from": item.get("from"), "to": item.get("to"), "relation": item.get("relation")}
+            for item in patch.edges_to_add
+        ],
+        "artifactsAdded": [item.get("id") for item in patch.artifacts_to_add],
+        "decisionsAdded": [item.get("id") for item in patch.decisions_to_add],
+        "motifSupportDelta": patch.motif_support_delta,
+        "invariantsBefore": before_invariants,
+        "invariantsAfter": after_invariants,
+        "timestamp": utc_now(),
+    }
 
 
 def _refresh_input_manifest(state: dict[str, Any]) -> None:
@@ -483,6 +566,17 @@ def apply_reconciliation(state: dict[str, Any], failures: list[dict[str, Any]]) 
         )
         return state
     reconciled = apply_patch(state, patch)
+    reconciled.setdefault("patchTimeline", []).append(
+        _patch_timeline_record(
+            "reconcile_crar_mismatch",
+            "reconciliation",
+            patch,
+            True,
+            [],
+            len(state.get("invariants", [])),
+            len(reconciled.get("invariants", [])),
+        )
+    )
     reconciled["executionLog"].append(
         {
             "timestamp": utc_now(),
@@ -557,6 +651,17 @@ def execute_pass(
     )
     if validation_errors:
         failed = PassResult("failed", result.patch, error="; ".join(validation_errors))
+        state.setdefault("patchTimeline", []).append(
+            _patch_timeline_record(
+                compiler_pass.name,
+                "domain_pass",
+                result.patch,
+                False,
+                validation_errors,
+                len(state.get("invariants", [])),
+                len(state.get("invariants", [])),
+            )
+        )
         state["status"] = "failed"
         return state, failed
     next_state = apply_patch(state, result.patch)
@@ -586,6 +691,17 @@ def execute_pass(
         "motifGapDelta": gap_delta,
     }
     next_state["passHistory"].append(pass_record)
+    next_state.setdefault("patchTimeline", []).append(
+        _patch_timeline_record(
+            compiler_pass.name,
+            "domain_pass",
+            result.patch,
+            True,
+            [],
+            len(state.get("invariants", [])),
+            len(invariants),
+        )
+    )
     next_state["executionLog"].append(
         {
             "timestamp": utc_now(),
@@ -620,7 +736,7 @@ def run_task(
                     {
                         "id": f"input:{len(task_ast['inputs']) + 1}",
                         "label": Path(location).name,
-                        "type": "code" if str(location).endswith(".patch") else "data",
+                        "type": "repo" if Path(location).is_dir() else "code" if str(location).endswith(".patch") else "data",
                         "location": location,
                         "resolved": False,
                     }
@@ -721,6 +837,7 @@ def run_task(
     if fatal:
         state = apply_reconciliation(state, fatal)
         state["invariants"] = run_invariants(state)
+        state = emit_llm_narrative(state, llm_provider)
         reason = ", ".join(item.get("invariantId", "unknown") for item in fatal)
         _commit_id, state = commit_state(
             store,
@@ -730,5 +847,6 @@ def run_task(
             failure_class=classify_failure(item.get("invariantId", "unknown") for item in fatal),
         )
     else:
+        state = emit_llm_narrative(state, llm_provider)
         _commit_id, state = commit_state(store, state, status="committed_success")
     return state

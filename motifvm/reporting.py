@@ -63,9 +63,11 @@ def render_report(state: dict[str, Any], show_graph: bool = False) -> str:
         "---------",
     ])
     for authority in state.get("authorityRefs", []):
-        lines.append(
-            f"- {authority.get('id')} ({authority.get('sourceType')}, v{authority.get('version')})"
-        )
+        section = authority.get("sectionId") or "unsectioned"
+        excerpt = authority.get("quotedRuleExcerpt")
+        lines.append(f"- {authority.get('id')} ({authority.get('sourceType')}, v{authority.get('version')}, {section})")
+        if excerpt:
+            lines.append(f"  rule: {excerpt}")
     lines.extend([
         "",
         "Motif Gap",
@@ -94,6 +96,19 @@ def render_report(state: dict[str, Any], show_graph: bool = False) -> str:
                 for key in sorted(deltas)
             )
             lines.append(f"  motif gaps: {rendered}")
+    timeline = state.get("patchTimeline", [])
+    lines.extend(["", "Patch Timeline", "--------------"])
+    if timeline:
+        for item in timeline:
+            status = "authorized" if item.get("authorized") else "rejected"
+            lines.append(
+                f"- {item.get('passName')} [{item.get('role')}, {status}]: "
+                f"nodes +{len(item.get('nodesAdded', []))}, "
+                f"edges +{len(item.get('edgesAdded', []))}, "
+                f"artifacts +{len(item.get('artifactsAdded', []))}"
+            )
+    else:
+        lines.append("- none")
     claims = _claims(state)
     if claims:
         lines.extend(["", "Claims", "------"])

@@ -410,11 +410,20 @@ def check_evidence_rows_reference_hash(state: dict[str, Any]) -> dict[str, Any]:
 def check_code_changed_files_hashed(state: dict[str, Any]) -> dict[str, Any] | None:
     if state.get("taskAst", {}).get("meta", {}).get("domain") != "code_review":
         return None
+    review = _code_review_artifact(state)
+    changed_files = set(review.get("content", {}).get("changedFiles", [])) if review and review.get("content", {}).get("repoPath") else set()
+    manifest_paths = {str(item.get("path", "")) for item in state.get("inputManifest", []) if item.get("sha256")}
+    missing_changed = [
+        path
+        for path in changed_files
+        if path and not any(manifest_path.endswith(path) for manifest_path in manifest_paths)
+    ]
     missing = [
         item.get("inputId") or item.get("path", "<unknown>")
         for item in state.get("inputManifest", [])
         if str(item.get("path", "")).endswith(".patch") and not item.get("sha256")
     ]
+    missing.extend(missing_changed)
     return result(
         "CODE_001_CHANGED_FILES_HASHED",
         not missing,

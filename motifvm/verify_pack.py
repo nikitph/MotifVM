@@ -17,7 +17,7 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
     for item in state.get("inputManifest", []):
         source = Path(item.get("path", ""))
         if source.exists():
-            actual = _sha256(source)
+            actual = _tree_hash(source) if source.is_dir() else _sha256(source)
             if actual != item.get("sha256"):
                 issues.append({"check": "PACK_INPUT_HASH", "message": f"Input hash mismatch: {source}"})
 
@@ -59,9 +59,36 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
     else:
         issues.append({"check": "PACK_REPORT_PRESENT", "message": "report.md missing"})
 
-    for filename in ("graph.json", "graph.dot", "graph.mmd", "lineage.json", "invariants.json", "inputs_manifest.json"):
+    for filename in (
+        "graph.json",
+        "graph.dot",
+        "graph.mmd",
+        "lineage.json",
+        "invariants.json",
+        "inputs_manifest.json",
+        "patch_timeline.json",
+        "patch_timeline.md",
+    ):
         if not (path / filename).exists():
             issues.append({"check": "PACK_FILE_PRESENT", "message": f"{filename} missing"})
+
+    timeline_path = path / "patch_timeline.json"
+    if timeline_path.exists():
+        timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+        if not isinstance(timeline.get("patches"), list):
+            issues.append({"check": "PACK_PATCH_TIMELINE", "message": "patch_timeline.json patches must be a list"})
+        for item in timeline.get("patches", []):
+            if not item.get("passName") or "authorized" not in item:
+                issues.append({"check": "PACK_PATCH_TIMELINE", "message": "Patch timeline entry missing passName/authorized"})
+
+    for authority in authorities.values():
+        excerpt = authority.get("quotedRuleExcerpt")
+        section_hash = authority.get("sectionHash")
+        if excerpt and section_hash and hashlib.sha256(excerpt.encode("utf-8")).hexdigest() != section_hash:
+            issues.append({"check": "PACK_AUTHORITY_SECTION_HASH", "message": f"Authority section hash mismatch: {authority.get('id')}"})
+        location = str(authority.get("location") or "").split("#", 1)[0]
+        if excerpt and location and Path(location).exists() and excerpt not in Path(location).read_text(encoding="utf-8"):
+            issues.append({"check": "PACK_AUTHORITY_EXCERPT", "message": f"Authority excerpt not found: {authority.get('id')}"})
 
     return not issues, issues
 
@@ -71,6 +98,14 @@ def _sha256(path: Path) -> str:
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _tree_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    for child in sorted(item for item in path.rglob("*") if item.is_file() and ".git" not in item.parts):
+        digest.update(str(child.relative_to(path)).encode("utf-8"))
+        digest.update(_sha256(child).encode("utf-8"))
     return digest.hexdigest()
 
 

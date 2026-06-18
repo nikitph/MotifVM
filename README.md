@@ -68,6 +68,12 @@ Verify an exported audit pack independently:
 python3 -m motifvm verify-pack .motifvm/demo_outputs/dccb_mismatch/audit_pack
 ```
 
+Run the larger adversarial suite:
+
+```bash
+make adversarial-100
+```
+
 ## Examples
 
 Successful DCCB CRAR verification:
@@ -90,6 +96,15 @@ Code review auth-bypass detection:
 python3 -m motifvm run-task "Review this code diff for security risk" \
   --domain code_review \
   --input examples/code_review/unsafe_auth_bypass/diff.patch
+```
+
+Repository-scale code review:
+
+```bash
+python3 -m motifvm run-task \
+  "Review this repository diff for security risk" \
+  --domain code_review \
+  --input examples/code_review/repo_helper
 ```
 
 Structured LLM call boundary with DeepSeek:
@@ -155,6 +170,8 @@ Audit packs can be checked without rerunning the task:
 ```bash
 python3 -m motifvm verify-pack <audit-pack-dir>
 ```
+
+Audit packs also include `patch_timeline.json` and `patch_timeline.md`, which show each authorized or rejected StatePatch transition.
 
 ## Demo Package
 

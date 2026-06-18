@@ -1,4 +1,4 @@
-.PHONY: test demo eval adversarial
+.PHONY: test demo eval adversarial adversarial-100
 
 test:
 	python3 -m unittest discover -s tests
@@ -12,3 +12,6 @@ eval:
 
 adversarial:
 	python3 -m motifvm.adversarial
+
+adversarial-100:
+	python3 -m motifvm.adversarial_100

@@ -7,12 +7,16 @@
     body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
     aside { border-right: 1px solid #ddd; padding: 16px; overflow: auto; }
     main { padding: 16px; overflow: auto; }
+    button { margin-right: 8px; }
     pre { white-space: pre-wrap; background: #f7f7f7; padding: 12px; border: 1px solid #ddd; }
     .node { border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin: 8px 0; }
+    .patch { border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin: 8px 0; }
     .claim { border-left: 5px solid #b85; }
     .evidence { border-left: 5px solid #58b; }
     .output { border-left: 5px solid #5a7; }
     .error { border-left: 5px solid #b55; }
+    .rejected { border-left: 5px solid #b55; }
+    .authorized { border-left: 5px solid #5a7; }
   </style>
 </head>
 <body>
@@ -26,13 +30,33 @@
     <pre id="invariants"></pre>
   </aside>
   <main>
-    <h2>Graph Nodes</h2>
+    <button id="graphTab" type="button">Graph</button>
+    <button id="patchTab" type="button">Patches</button>
+    <h2 id="viewTitle">Graph Nodes</h2>
     <div id="nodes"></div>
   </main>
   <script>
+    let loadedState = null;
+    let activeView = "graph";
+
+    document.getElementById("graphTab").addEventListener("click", () => {
+      activeView = "graph";
+      render();
+    });
+    document.getElementById("patchTab").addEventListener("click", () => {
+      activeView = "patch";
+      render();
+    });
+
     document.getElementById("file").addEventListener("change", async (event) => {
       const file = event.target.files[0];
-      const state = JSON.parse(await file.text());
+      loadedState = JSON.parse(await file.text());
+      render();
+    });
+
+    function render() {
+      if (!loadedState) return;
+      const state = loadedState;
       document.getElementById("terminal").textContent =
         `Status: ${state.status}\nReason: ${state.terminalReason || "none"}\nCommit: ${state.parentCommit || "none"}`;
       document.getElementById("invariants").textContent = state.invariants
@@ -40,13 +64,28 @@
         .join("\n");
       const nodes = document.getElementById("nodes");
       nodes.innerHTML = "";
-      Object.entries(state.graph.nodes).forEach(([id, node]) => {
-        const div = document.createElement("div");
-        div.className = `node ${node.type}`;
-        div.innerHTML = `<strong>${id}</strong><br><em>${node.type}</em><p>${node.content}</p>`;
-        nodes.appendChild(div);
-      });
-    });
+      if (activeView === "graph") {
+        document.getElementById("viewTitle").textContent = "Graph Nodes";
+        Object.entries(state.graph.nodes).forEach(([id, node]) => {
+          const div = document.createElement("div");
+          div.className = `node ${node.type}`;
+          div.innerHTML = `<strong>${id}</strong><br><em>${node.type}</em><p>${node.content}</p>`;
+          nodes.appendChild(div);
+        });
+      } else {
+        document.getElementById("viewTitle").textContent = "Patch Timeline";
+        (state.patchTimeline || []).forEach((patch, index) => {
+          const div = document.createElement("div");
+          div.className = `patch ${patch.authorized ? "authorized" : "rejected"}`;
+          div.innerHTML =
+            `<strong>${index + 1}. ${patch.passName}</strong><br>` +
+            `<em>${patch.role} ${patch.authorized ? "authorized" : "rejected"}</em>` +
+            `<p>nodes +${patch.nodesAdded.length}, edges +${patch.edgesAdded.length}, artifacts +${patch.artifactsAdded.length}</p>` +
+            `<pre>${JSON.stringify(patch.motifSupportDelta || {}, null, 2)}</pre>`;
+          nodes.appendChild(div);
+        });
+      }
+    }
   </script>
 </body>
 </html>
