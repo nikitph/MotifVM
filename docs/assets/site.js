@@ -38,14 +38,18 @@ function buildNodes() {
       y,
       r: index === 3 ? 18 : 13,
       phase: index * 0.8,
-      color: ["#69b7ff", "#6ee7b7", "#f5c451", "#b79cff", "#ff7a90", "#dbeafe"][index]
+      color: ["#1769c2", "#0d8a72", "#a66b00", "#7154cf", "#c73652", "#334155"][index]
     };
   });
 }
 
 function draw(time = 0) {
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#090d12";
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, "#fffaf0");
+  gradient.addColorStop(0.55, "#f6f3ed");
+  gradient.addColorStop(1, "#eef5f6");
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
   const t = time * 0.001;
@@ -54,7 +58,7 @@ function draw(time = 0) {
     const a = nodes[i];
     const b = nodes[i + 1];
     const pulse = prefersReduced ? 0.4 : (Math.sin(t * 1.6 + i) + 1) / 2;
-    ctx.strokeStyle = `rgba(105, 183, 255, ${0.16 + pulse * 0.26})`;
+    ctx.strokeStyle = `rgba(23, 105, 194, ${0.12 + pulse * 0.22})`;
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     const mid = (a.x + b.x) / 2;
@@ -65,7 +69,7 @@ function draw(time = 0) {
   for (const node of nodes) {
     const pulse = prefersReduced ? 0 : Math.sin(t * 1.8 + node.phase) * 2.6;
     ctx.beginPath();
-    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    ctx.fillStyle = "rgba(23, 105, 194, 0.06)";
     ctx.arc(node.x, node.y, node.r + 18 + pulse, 0, Math.PI * 2);
     ctx.fill();
 
@@ -74,8 +78,8 @@ function draw(time = 0) {
     ctx.arc(node.x, node.y, node.r, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.font = "700 13px Inter, system-ui, sans-serif";
-    ctx.fillStyle = "rgba(244,247,251,0.86)";
+    ctx.font = "760 13px Aptos, Inter, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(23, 32, 42, 0.76)";
     ctx.textAlign = "center";
     ctx.fillText(node.label, node.x, node.y + node.r + 28);
   }
@@ -92,7 +96,7 @@ function drawStateMachine(t) {
   const y = height * 0.5;
   const radius = Math.min(width, height) * 0.19;
   const labels = ["validate", "authorize", "apply", "verify", "commit"];
-  ctx.strokeStyle = "rgba(110, 231, 183, 0.22)";
+  ctx.strokeStyle = "rgba(13, 138, 114, 0.22)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -102,15 +106,15 @@ function drawStateMachine(t) {
     const angle = (Math.PI * 2 * index) / labels.length - Math.PI / 2 + (prefersReduced ? 0 : t * 0.035);
     const px = x + Math.cos(angle) * radius;
     const py = y + Math.sin(angle) * radius;
-    ctx.fillStyle = "rgba(9, 13, 18, 0.88)";
-    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.fillStyle = "rgba(255, 255, 255, 0.82)";
+    ctx.strokeStyle = "rgba(23, 32, 42, 0.14)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.rect(px - 46, py - 15, 92, 30);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = "rgba(244,247,251,0.86)";
-    ctx.font = "700 11px Inter, system-ui, sans-serif";
+    ctx.fillStyle = "rgba(23, 32, 42, 0.82)";
+    ctx.font = "760 11px Aptos, Inter, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.fillText(label, px, py + 4);
   });

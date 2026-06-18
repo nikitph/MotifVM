@@ -1,17 +1,21 @@
 :root {
-  color-scheme: dark;
-  --ink: #f4f7fb;
-  --muted: #b3bfca;
-  --quiet: #7d8d9d;
-  --panel: rgba(13, 20, 27, 0.82);
-  --panel-solid: #111a23;
-  --line: rgba(255, 255, 255, 0.14);
-  --blue: #69b7ff;
-  --green: #6ee7b7;
-  --amber: #f5c451;
-  --red: #ff7a90;
-  --violet: #b79cff;
-  --page: #090d12;
+  color-scheme: light;
+  --ink: #17202a;
+  --heading: #0b1520;
+  --muted: #526272;
+  --quiet: #7a8794;
+  --panel: rgba(255, 255, 255, 0.82);
+  --panel-solid: #ffffff;
+  --line: rgba(22, 36, 50, 0.13);
+  --blue: #1769c2;
+  --green: #0d8a72;
+  --amber: #a66b00;
+  --red: #c73652;
+  --violet: #7154cf;
+  --page: #f6f3ed;
+  --cream: #fffaf0;
+  --paper: #fffdf8;
+  --code: #f2f6fb;
   --max: 1180px;
 }
 
@@ -26,10 +30,12 @@ html {
 body {
   margin: 0;
   background:
-    linear-gradient(180deg, rgba(9, 13, 18, 0.96), rgba(12, 16, 20, 1) 42%, #0b1015);
+    radial-gradient(circle at 82% 8%, rgba(23, 105, 194, 0.12), transparent 28%),
+    linear-gradient(180deg, #fbf7ef 0%, #f7f2e9 42%, #eef4f4 100%);
   color: var(--ink);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.55;
+  font-family: "Aptos", "Inter", "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  line-height: 1.58;
+  text-rendering: optimizeLegibility;
 }
 
 a {
@@ -48,8 +54,9 @@ a {
   height: 72px;
   padding: 0 clamp(18px, 4vw, 56px);
   border-bottom: 1px solid var(--line);
-  background: rgba(8, 12, 17, 0.78);
+  background: rgba(255, 253, 248, 0.78);
   backdrop-filter: blur(18px);
+  box-shadow: 0 14px 40px rgba(31, 41, 55, 0.06);
 }
 
 .brand,
@@ -63,8 +70,9 @@ a {
 
 .brand {
   gap: 10px;
-  font-weight: 780;
+  font-weight: 820;
   letter-spacing: 0;
+  color: var(--heading);
 }
 
 .brand-mark {
@@ -72,8 +80,8 @@ a {
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(105, 183, 255, 0.48);
-  background: #0d2535;
+  border: 1px solid rgba(23, 105, 194, 0.24);
+  background: #eaf3ff;
   color: var(--blue);
   font-weight: 900;
 }
@@ -84,17 +92,19 @@ a {
   gap: clamp(12px, 2vw, 24px);
   color: var(--muted);
   font-size: 14px;
+  font-weight: 690;
 }
 
 .nav-links a:hover,
 .nav-action:hover {
-  color: var(--ink);
+  color: var(--heading);
 }
 
 .nav-action {
   border: 1px solid var(--line);
   padding: 0 14px;
   color: var(--muted);
+  background: rgba(255, 255, 255, 0.66);
 }
 
 .hero {
@@ -105,6 +115,7 @@ a {
   align-items: center;
   padding: 128px clamp(22px, 5vw, 72px) 96px;
   border-bottom: 1px solid var(--line);
+  background: #f9f4ea;
 }
 
 #kernel-canvas,
@@ -117,8 +128,8 @@ a {
 
 .hero-shade {
   background:
-    linear-gradient(90deg, rgba(9, 13, 18, 0.97) 0%, rgba(9, 13, 18, 0.83) 38%, rgba(9, 13, 18, 0.28) 100%),
-    linear-gradient(180deg, rgba(9, 13, 18, 0.16), rgba(9, 13, 18, 0.88));
+    linear-gradient(90deg, rgba(255, 252, 245, 0.98) 0%, rgba(255, 252, 245, 0.9) 40%, rgba(255, 252, 245, 0.3) 100%),
+    linear-gradient(180deg, rgba(255, 252, 245, 0.2), rgba(246, 243, 237, 0.92));
 }
 
 .hero-content {
@@ -131,7 +142,7 @@ a {
 .section-kicker {
   color: var(--green);
   text-transform: uppercase;
-  font-weight: 800;
+  font-weight: 830;
   font-size: 12px;
   letter-spacing: 0.12em;
 }
@@ -143,11 +154,19 @@ p {
   margin-top: 0;
 }
 
+h1,
+h2,
+h3 {
+  font-family: "Aptos Display", "Segoe UI Variable Display", "Aptos", "Inter", ui-sans-serif, system-ui, sans-serif;
+  color: var(--heading);
+}
+
 h1 {
   margin-bottom: 18px;
   font-size: clamp(76px, 13vw, 176px);
   line-height: 0.82;
   letter-spacing: 0;
+  font-weight: 850;
 }
 
 h2 {
@@ -155,17 +174,20 @@ h2 {
   line-height: 0.96;
   letter-spacing: 0;
   max-width: 900px;
+  font-weight: 830;
 }
 
 h3 {
   font-size: 20px;
   line-height: 1.1;
+  font-weight: 790;
 }
 
 .hero-copy {
   max-width: 720px;
-  color: #d5dde6;
+  color: #324253;
   font-size: clamp(18px, 2vw, 24px);
+  font-weight: 460;
 }
 
 .hero-actions,
@@ -180,19 +202,20 @@ h3 {
   justify-content: center;
   padding: 0 18px;
   border: 1px solid var(--line);
-  font-weight: 740;
+  font-weight: 760;
   min-width: 150px;
 }
 
 .button.primary {
-  color: #071015;
+  color: #ffffff;
   background: var(--green);
   border-color: var(--green);
+  box-shadow: 0 10px 22px rgba(13, 138, 114, 0.18);
 }
 
 .button.secondary {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--heading);
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .hero-proof {
@@ -208,9 +231,10 @@ h3 {
 
 .hero-proof strong {
   display: block;
-  color: var(--ink);
+  color: var(--heading);
   font-size: 44px;
   line-height: 1;
+  font-family: "Aptos Display", "Segoe UI Variable Display", ui-sans-serif, system-ui, sans-serif;
 }
 
 .hero-proof span,
@@ -220,7 +244,7 @@ h3 {
 
 .runtime-strip {
   border-bottom: 1px solid var(--line);
-  background: #0b1117;
+  background: rgba(255, 253, 248, 0.72);
   overflow: hidden;
 }
 
@@ -239,8 +263,8 @@ h3 {
   place-items: center;
   text-align: center;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.035);
-  color: #dfe7ee;
+  background: rgba(255, 255, 255, 0.72);
+  color: #243446;
   font-size: 13px;
   font-weight: 760;
 }
@@ -269,7 +293,7 @@ h3 {
 }
 
 .prose {
-  color: #d3dce5;
+  color: #384a5b;
   font-size: 18px;
 }
 
@@ -300,6 +324,7 @@ h3 {
   border: 1px solid var(--line);
   background: var(--panel);
   padding: 24px;
+  box-shadow: 0 20px 60px rgba(31, 41, 55, 0.06);
 }
 
 .token-list {
@@ -315,23 +340,24 @@ h3 {
 .adapter-output span,
 .audit-files span {
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.055);
+  background: rgba(247, 250, 252, 0.88);
   padding: 8px 10px;
-  color: #dfe7ee;
+  color: #263747;
   font-size: 13px;
+  font-weight: 650;
 }
 
 pre {
   margin: 0;
   overflow: auto;
-  color: #dbeafe;
-  background: #071018;
-  border: 1px solid rgba(105, 183, 255, 0.22);
+  color: #13324b;
+  background: var(--code);
+  border: 1px solid rgba(23, 105, 194, 0.18);
   padding: 18px;
 }
 
 code {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 13px;
 }
 
@@ -358,40 +384,42 @@ code {
   display: grid;
   place-items: center;
   text-align: center;
-  font-weight: 800;
+  font-weight: 820;
 }
 
 .source.csv {
-  background: rgba(105, 183, 255, 0.12);
+  background: #e7f1ff;
   color: var(--blue);
 }
 
 .source.diff {
-  background: rgba(110, 231, 183, 0.12);
+  background: #e6f8f3;
   color: var(--green);
 }
 
 .source.repo {
-  background: rgba(245, 196, 81, 0.12);
+  background: #fff3d9;
   color: var(--amber);
 }
 
 .source.future {
-  background: rgba(183, 156, 255, 0.12);
+  background: #f0edff;
   color: var(--violet);
 }
 
 .adapter-core {
   min-height: 136px;
-  background: #10212b;
-  color: var(--ink);
+  background: #ffffff;
+  color: var(--heading);
   align-content: center;
   gap: 8px;
+  box-shadow: 0 22px 60px rgba(23, 105, 194, 0.08);
 }
 
 .adapter-core strong {
   font-size: clamp(28px, 4vw, 48px);
   line-height: 1;
+  font-family: "Aptos Display", "Segoe UI Variable Display", ui-sans-serif, system-ui, sans-serif;
 }
 
 .adapter-core span,
@@ -415,13 +443,14 @@ code {
 .policy-table-wrap {
   overflow: auto;
   border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(31, 41, 55, 0.06);
 }
 
 .policy-table {
   width: 100%;
   border-collapse: collapse;
   min-width: 640px;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .policy-table th,
@@ -440,7 +469,7 @@ code {
 }
 
 .policy-table td {
-  color: #d9e2ea;
+  color: #35495a;
 }
 
 .terminal-grid {
