@@ -1,0 +1,27 @@
+{
+  "name": "motifvm-workbench",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"python3 server.py\" \"vite --host 127.0.0.1\"",
+    "api": "python3 server.py",
+    "web": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "@xyflow/react": "^12.8.5",
+    "vite": "^7.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "framer-motion": "^12.23.12",
+    "lucide-react": "^0.539.0",
+    "tailwindcss": "^3.4.17",
+    "postcss": "^8.5.6",
+    "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.0"
+  },
+  "devDependencies": {}
+}

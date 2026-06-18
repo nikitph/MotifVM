@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background: #f7fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 250, 252, 0.92)),
+    radial-gradient(circle at 82% 12%, rgba(23, 105, 194, 0.12), transparent 30%),
+    radial-gradient(circle at 18% 4%, rgba(15, 118, 110, 0.1), transparent 26%);
+  font-family: Aptos, Inter, "Segoe UI Variable", system-ui, sans-serif;
+}
+
+.font800 {
+  font-weight: 800;
+}
+
+.font850 {
+  font-weight: 850;
+}
+
+.font900 {
+  font-weight: 900;
+}
+
+.react-flow__node {
+  border-radius: 0;
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #ffffff;
+  background: #0f766e;
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.line-clamp-4 {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

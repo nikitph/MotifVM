@@ -39,6 +39,16 @@ Run tests:
 make test
 ```
 
+Run the product workbench:
+
+```bash
+cd product
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173` for the interactive MotifVM workbench with draggable reasoning graphs, domain invariant proposals, run history, and local SQLite persistence.
+
 Run the full demo suite:
 
 ```bash
