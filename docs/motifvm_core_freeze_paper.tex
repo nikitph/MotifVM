@@ -10,6 +10,8 @@
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit}
 
 \definecolor{motifblue}{HTML}{1F4E79}
 \definecolor{motifgreen}{HTML}{0F766E}
@@ -20,16 +22,16 @@
   citecolor=motifblue
 }
 
-\title{\textbf{MotifVM: An Invariant-Checked Reasoning Runtime}\\
-\large Core Freeze at the Adapter Boundary and ExtractedFact Normal Form}
+\title{\textbf{MotifVM: A Motif-Aware Cognitive Compiler for Invariant-Checked Reasoning}\\
+\large Compiler Layer, Runtime Kernel, Audit Packs, and Replanning at v0.6.5}
 \author{Nikit Phadke}
-\date{Version 0.5.4}
+\date{Version 0.6.5}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-LLM applications frequently collapse ingestion, reasoning, execution, and trust into a single opaque loop. A model reads an artifact, emits text, calls tools, and the surrounding application often treats the output as actionable state. MotifVM proposes a different architecture: a small cognitive virtual machine in which artifacts are first normalized into hash-bound evidence references and extracted facts, reasoning components propose typed state patches, and the runtime alone validates, authorizes, applies, verifies, commits, and exports terminal states. This paper describes the MotifVM v0.5.4 core freeze. The main contribution is not a new prompt pattern or workflow graph, but a kernel boundary: \texttt{ArtifactAdapter} $\rightarrow$ \texttt{EvidenceRef} $\rightarrow$ \texttt{ExtractedFact} $\rightarrow$ \texttt{StatePatch} $\rightarrow$ invariants $\rightarrow$ terminal state $\rightarrow$ audit pack. We present the runtime model, adapter contract, fact normal form, patch authorization system, invariant-driven terminal semantics, audit-pack verifier, implemented domains, evaluation gates, threat model, and limitations.
+LLM applications frequently collapse ingestion, reasoning, execution, planning, and trust into a single opaque loop. A model reads an artifact, emits text, calls tools, and the surrounding application often treats the output as actionable state. MotifVM proposes a different architecture: a motif-aware cognitive compiler above a small invariant-checked runtime kernel. The compiler diagnoses a task into a \texttt{MotifFrame}, computes gap and consequence-weighted risk, selects a \texttt{ReasoningPlan} from declared \texttt{PassEffect} metadata, chooses light, standard, or strict verification, and records replanning actions when terminal invariants fail. The runtime kernel remains stricter: artifacts are normalized into hash-bound evidence references and extracted facts, reasoning components propose typed state patches, and the runtime alone validates, authorizes, applies, verifies, commits, and exports terminal states. This paper describes MotifVM v0.6.5 as the first complete research release: \texttt{TaskAST} $\rightarrow$ \texttt{MotifFrame} $\rightarrow$ \texttt{ReasoningPlan} $\rightarrow$ \texttt{StatePatch} $\rightarrow$ invariants $\rightarrow$ replan or terminal state $\rightarrow$ audit pack. We present the compiler layer, runtime model, adapter contract, fact normal form, patch authorization system, invariant-driven terminal semantics, audit-pack verifier, implemented domains, evaluation gates, threat model, and limitations.
 \end{abstract}
 
 \section{Introduction}
@@ -44,7 +46,7 @@ The design target is an auditable cognitive VM:
 Model and tool outputs do not become truth. They become proposed state transitions over explicit cognitive state.
 \end{quote}
 
-The v0.5.4 milestone freezes the core boundary around artifact adapters and an \texttt{ExtractedFact} normal form. This is the point at which MotifVM's kernel becomes separable from future surface expansion. CSV, diff, repository, PDF, log, API, and email adapters should all behave like device drivers: they translate the outside world into stable evidence and facts without changing the kernel.
+The v0.5.4 milestone froze the core boundary around artifact adapters and an \texttt{ExtractedFact} normal form. The v0.6.5 milestone adds the missing cognitive compiler above that kernel. This is the point at which MotifVM becomes more than an invariant-checked runtime: it can inspect the motif demands of a task, choose a pass plan, scale verification strength, and explain why a terminal failure should request evidence, run reconciliation, load authority, or commit a security failure.
 
 \section{Design Goals}
 
@@ -59,6 +61,7 @@ MotifVM is designed around eight goals:
   \item \textbf{Patch authorization.} LLMs, passes, tools, reconciliation logic, and runtime code must have different permissions.
   \item \textbf{Invariant terminal semantics.} Success and failure must be committed terminal states with typed failure classes.
   \item \textbf{Portable verification.} Audit packs must be checkable without rerunning the original task.
+  \item \textbf{Motif-aware planning.} Pass selection and verification strength must be derived from explicit motif gaps and risk, not from a fixed workflow.
 \end{enumerate}
 
 \section{System Overview}
@@ -104,6 +107,57 @@ The complete path is therefore:
 \rightarrow \text{PackVerifier}
 \end{align*}
 
+At v0.6.5, the complete compiler-over-runtime law is:
+
+\begin{align*}
+\text{TaskAST}
+&\rightarrow \text{MotifFrame}
+\rightarrow \text{ReasoningPlan}
+\rightarrow \text{VerificationPolicy} \\
+&\rightarrow \text{StatePatch}^{*}
+\rightarrow \text{Invariant}^{*}
+\rightarrow \text{Replan or TerminalState}
+\rightarrow \text{AuditPack}
+\end{align*}
+
+\subsection{Compiler over Runtime Architecture}
+
+\begin{center}
+\begin{tikzpicture}[
+  node distance=0.72cm and 0.86cm,
+  box/.style={draw=motifblue, rounded corners, align=center, minimum width=2.5cm, minimum height=0.72cm, font=\small},
+  cbox/.style={box, fill=motifblue!8},
+  rbox/.style={box, fill=motifgreen!8, draw=motifgreen},
+  arrow/.style={-{Latex[length=2mm]}, thick, draw=black!70}
+]
+\node[cbox] (task) {TaskAST};
+\node[cbox, right=of task] (frame) {MotifFrame\\gap + risk};
+\node[cbox, right=of frame] (plan) {ReasoningPlan\\selected passes};
+\node[cbox, right=of plan] (policy) {Verification\\Policy};
+
+\node[rbox, below=1.1cm of task] (artifact) {Artifact\\Adapter};
+\node[rbox, right=of artifact] (facts) {EvidenceRef\\ExtractedFact};
+\node[rbox, right=of facts] (patch) {StatePatch};
+\node[rbox, right=of patch] (inv) {Invariants};
+\node[rbox, right=of inv] (term) {Terminal\\State};
+\node[rbox, below=of term] (pack) {Audit\\Pack};
+
+\draw[arrow] (task) -- (frame);
+\draw[arrow] (frame) -- (plan);
+\draw[arrow] (plan) -- (policy);
+\draw[arrow] (policy) -- (inv);
+\draw[arrow] (artifact) -- (facts);
+\draw[arrow] (facts) -- (patch);
+\draw[arrow] (patch) -- (inv);
+\draw[arrow] (inv) -- (term);
+\draw[arrow] (term) -- (pack);
+\draw[arrow] (inv.north) .. controls +(0,0.7) and +(0,-0.55) .. node[right, pos=0.56, font=\scriptsize] {replan} (plan.south);
+
+\node[draw=motifblue, rounded corners, fit=(task) (frame) (plan) (policy), inner sep=0.25cm, label={[font=\small\bfseries, motifblue]above:Motif-aware cognitive compiler}] {};
+\node[draw=motifgreen, rounded corners, fit=(artifact) (facts) (patch) (inv) (term) (pack), inner sep=0.25cm, label={[font=\small\bfseries, motifgreen]below:Invariant-checked runtime kernel}] {};
+\end{tikzpicture}
+\end{center}
+
 \section{Kernel Primitives}
 
 \begin{center}
@@ -124,9 +178,76 @@ The complete path is therefore:
 \texttt{AuditPack} & Portable bundle containing state, graph, facts, lineage, invariants, inputs, and reports. \\
 \texttt{PackVerifier} & Independent consistency checker for exported audit packs. \\
 \texttt{PatchTimeline} & Ordered record of authorized and rejected patch proposals. \\
+\texttt{MotifFrame} & Compiler record of required support, current support, gap, consequence-weighted risk, and selected policies. \\
+\texttt{ReasoningPlan} & Compiler output containing selected passes, model/tool/checkpoint/reconciliation policies, verification policy, expected gap reduction, and rationale. \\
+\texttt{PassEffect} & Metadata describing each pass's motif deltas, cost profile, risk profile, and failure modes. \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\section{Motif-Aware Cognitive Compiler}
+
+The frozen kernel answers the question: what counts as a valid state transition? The compiler answers a different question: which transitions should this task attempt, and under what verification policy?
+
+\subsection{MotifFrame}
+
+Every run begins with a \texttt{TaskAST} and a motif diagnosis. The compiler constructs a \texttt{MotifFrame}:
+
+\[
+\text{MotifFrame.risk}[m] =
+\max(0, \text{required}[m] - \text{supported}[m])
+\times \text{consequence}[m]
+\]
+
+The frame records required support, current support, gap, risk, selected compiler policies, creator, and timestamp. Consequence is domain-sensitive: a missing invariant in a regulated CRAR audit or security review is more consequential than missing invariant strength in a low-risk summary.
+
+\subsection{PassEffect Registry}
+
+Each runtime pass declares a \texttt{PassEffect} entry:
+
+\begin{verbatim}
+{
+  "strengthens": {"invariant": 0.35, "authority": 0.25},
+  "cost": {"latency": 0.12, "tokens": 0.0, "toolRisk": 0.0},
+  "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+  "failureModes": ["authority_missing", "invariant_failed"],
+  "runtimeInternal": false
+}
+\end{verbatim}
+
+The compiler refuses to build a plan when a non-internal pass lacks effect metadata. This makes pass selection inspectable: the planner is not an implicit ordering hidden in code; it is a decision over declared effects.
+
+\subsection{ReasoningPlan}
+
+The planner scores candidate passes by expected motif-gap reduction minus cost:
+
+\[
+\text{score}(p) =
+\sum_m \text{gap}[m] \cdot \text{effect}_p[m]
+- \text{costPenalty}(p)
+\]
+
+It then includes dependencies and emits a topologically valid \texttt{ReasoningPlan}. High-authority or high-invariant tasks select authority and structural verification passes. Low-risk summary tasks select a cheaper plan and light verification. The plan records selected passes, model policy, tool policy, checkpoint policy, reconciliation policy, verification policy, expected gap reduction, and rationale.
+
+\subsection{Adaptive Verification}
+
+Verification is selected from motif risk:
+
+\begin{center}
+\begin{tabular}{p{0.18\linewidth}p{0.7\linewidth}}
+\toprule
+\textbf{Policy} & \textbf{Checks} \\
+\midrule
+\texttt{light} & Schema and terminal checks for low-risk or scarcity-dominant tasks. \\
+\texttt{standard} & Schema, terminal, lineage, authority, and domain invariant checks. \\
+\texttt{strict} & Standard checks plus contradiction scan, confidence propagation, and pack-verifier expectations. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Replanning}
+
+When fatal invariants fail, MotifVM classifies the failure and appends a compiler replan event. The implemented replan actions include request more evidence, load authority sources, run reconciliation, commit failure with a clean-input request, and commit security failure. Replans are exported in \texttt{reasoning\_plans.json} and recorded in the patch timeline as \texttt{motif\_compiler\_replan}.
 
 \section{CognitiveState}
 
@@ -181,7 +302,7 @@ Adapters may not mutate \texttt{CognitiveState}. They may not emit terminal clai
 
 \subsection{Built-In Adapters}
 
-v0.5.4 implements three adapters:
+v0.6.5 includes three built-in adapters:
 
 \begin{center}
 \begin{tabular}{p{0.3\linewidth}p{0.24\linewidth}p{0.34\linewidth}}
@@ -279,7 +400,7 @@ Before a patch is applied, the runtime checks:
 
 \section{Patch Authorization}
 
-Patch authorization is a kernel-level concern because every actor must obey it. v0.5.4 uses role policies:
+Patch authorization is a kernel-level concern because every actor must obey it. v0.6.5 uses role policies:
 
 \begin{center}
 \begin{tabular}{p{0.2\linewidth}p{0.34\linewidth}p{0.34\linewidth}}
@@ -349,11 +470,14 @@ This is intentionally snapshot-based. MotifVM does not browse live regulatory so
 
 \section{Audit Packs}
 
-An audit pack is a portable evidence bundle for a committed state. v0.5.4 audit packs include:
+An audit pack is a portable evidence bundle for a committed state. v0.6.5 audit packs include:
 
 \begin{itemize}[leftmargin=1.5em]
   \item \texttt{state.json},
   \item \texttt{report.md},
+  \item \texttt{motif\_frame.json},
+  \item \texttt{reasoning\_plan.json},
+  \item \texttt{reasoning\_plans.json},
   \item \texttt{graph.json}, \texttt{graph.dot}, \texttt{graph.mmd},
   \item \texttt{lineage.json},
   \item \texttt{invariants.json},
@@ -380,6 +504,7 @@ The pack verifier checks internal consistency without rerunning the task. It ver
   \item reconciliation policy,
   \item report terminal status consistency,
   \item patch timeline shape,
+  \item compiler frame and reasoning plan shape,
   \item adapter output conformance.
 \end{itemize}
 
@@ -391,6 +516,7 @@ The current implementation is a dependency-light Python package. The runtime exp
 
 \begin{verbatim}
 make test
+make compiler-eval
 make adapter-conformance
 make demo
 make eval
@@ -420,14 +546,16 @@ MotifVM's release gates are intentionally modest but concrete. The goal is to ve
 0.3.5 & Adversarial reliability & 20-case adversarial suite \\
 0.4.5 & Scale and integration & Repository review + adversarial-100 \\
 0.5.4 & Adapter boundary freeze & Adapter conformance + extracted facts \\
+0.6.5 & Cognitive compiler & MotifFrame + ReasoningPlan + compiler eval \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The v0.5.4 release gate observed:
+The v0.6.5 release gate observed:
 
 \begin{itemize}[leftmargin=1.5em]
-  \item 18 unit tests passing,
+  \item 21 unit tests passing,
+  \item compiler evaluation passing,
   \item adapter conformance passing for CSV, git diff, and repository adapters,
   \item demo suite passing,
   \item evaluation suite passing,
@@ -437,12 +565,57 @@ The v0.5.4 release gate observed:
   \item PDF generation passing.
 \end{itemize}
 
+\subsection{Combined Evaluation Table}
+
+\begin{center}
+\begin{tabular}{p{0.26\linewidth}p{0.34\linewidth}p{0.28\linewidth}}
+\toprule
+\textbf{Evaluation} & \textbf{Metric} & \textbf{Observed result} \\
+\midrule
+Runtime eval & terminal status accuracy & 1.0 across 7 cases \\
+Runtime eval & failed invariant accuracy & 1.0 across 7 cases \\
+Runtime eval & reconciliation accuracy & 1.0 across 7 cases \\
+Runtime eval & lineage, authority, input-hash completeness & 1.0 each \\
+Runtime eval & schema validation failures & 0 \\
+\midrule
+Adversarial eval & 20-case status, invariant, failure-class correctness & 20/20 \\
+Adversarial-100 & terminal accuracy & 1.0000 \\
+Adversarial-100 & failed invariant accuracy & 1.0000 \\
+Adversarial-100 & failure-class accuracy & 1.0000 \\
+Adversarial-100 & pack verifier pass rate & 1.0000 \\
+Adversarial-100 & false positive / false negative rate & 0.0000 / 0.0000 \\
+\midrule
+Compiler eval & motif diagnosis accuracy & 4/4 qualitative task-risk labels \\
+Compiler eval & plan selection accuracy & 4/4 \\
+Compiler eval & verification policy accuracy & 4/4 \\
+Compiler eval & missed required pass rate & 0/4 \\
+Compiler eval & unnecessary pass rate & 0/4 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Example Compiler Trace}
+
+This trace uses the DCCB reported-CRAR mismatch fixture. It demonstrates the full path from task to compiler frame, plan, patches, invariant failure, replan, and terminal state.
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Task.} The user asks for CRAR verification over the mismatch fixture with domain \texttt{dccb\_audit}.
+  \item \textbf{MotifFrame.} The compiler diagnoses high addressing, state, invariant, authority, reconciliation, and terminal-state demand. Because this is a regulated audit domain, invariant and authority gaps receive high consequence weights. The selected policies include strict verification and authority requirements.
+  \item \textbf{ReasoningPlan.} The compiler selects the dependency-safe pass sequence: normalize intent, resolve inputs, extract constraints, build evidence graph, decompose task, assign tools, schedule execution, execute subtasks, verify structural, and synthesize output. The verification policy is \texttt{strict}.
+  \item \textbf{StatePatches.} Runtime passes emit authorized patches. The input adapter produces hash-bound CSV evidence and \texttt{dccb\_component} facts. Domain execution computes CRAR from Tier I, Tier II, and RWA facts and adds claim/output nodes.
+  \item \textbf{Invariant failure.} The runtime checks \texttt{DCCB\_003\_REPORTED\_CRAR\_MATCH}. The reported value is 19.00 percent while the computed value is 16.00 percent, so the invariant fails with severity \texttt{error}.
+  \item \textbf{Reconciliation patch.} Reconciliation logic proposes a non-mutating correction artifact and adds a corrected-output node blocked by auditor confirmation. The original source artifact is not modified.
+  \item \textbf{Compiler replan.} The failure classifier emits \texttt{reconciliation\_required}. The compiler appends a \texttt{motif\_compiler\_replan} patch-timeline event with action \texttt{run\_reconciliation} and increases reconciliation/feedback risk in the motif frame.
+  \item \textbf{Terminal state.} The state commits as failed with failure class \texttt{reconciliation\_required}. The audit pack exports state, graph, invariants, lineage, extracted facts, patch timeline, motif frame, reasoning plan, and replan history.
+\end{enumerate}
+
 \section{Threat Model}
 
 MotifVM protects the following assets:
 
 \begin{itemize}[leftmargin=1.5em]
   \item cognitive state,
+  \item motif frames and reasoning plans,
   \item input manifests and hashes,
   \item authority references and hashes,
   \item extracted facts and evidence refs,
@@ -451,24 +624,25 @@ MotifVM protects the following assets:
   \item audit packs.
 \end{itemize}
 
-Threats considered include malformed input, adversarial numeric fields, unsafe code diffs, LLM attempts to modify terminal facts, unauthorized source mutation, missing lineage, and audit-pack tampering.
+Threats considered include malformed input, adversarial numeric fields, unsafe code diffs, LLM attempts to modify terminal facts, unauthorized source mutation, missing lineage, over- or under-verification by the compiler, and audit-pack tampering.
 
-Controls include schema validation, patch authorization, input and authority hashing, domain and universal invariants, failure taxonomy, patch timeline export, and independent pack verification.
+Controls include schema validation, patch authorization, pass-effect metadata, motif-risk-based verification policy, input and authority hashing, domain and universal invariants, failure taxonomy, patch timeline export, and independent pack verification.
 
 \section{Limitations}
 
-MotifVM does not prove that every domain rule is complete, every source authority is legally current, or every possible security flaw is detected. It does not replace static analyzers, regulatory counsel, formal methods, or human review. It currently uses checked-in authority snapshots rather than live source retrieval. Repository review is still patch-oriented rather than a full program analysis engine.
+MotifVM does not prove that every domain rule is complete, every source authority is legally current, every planner choice is globally optimal, or every possible security flaw is detected. It does not replace static analyzers, regulatory counsel, formal methods, or human review. It currently uses checked-in authority snapshots rather than live source retrieval. Repository review is still patch-oriented rather than a full program analysis engine.
 
 The verifier checks internal consistency of the exported audit pack. It does not certify that the domain is complete or that the output is legally or financially sufficient.
 
 \section{Future Work}
 
-With the adapter boundary frozen, future work should primarily expand surfaces rather than mutate the kernel:
+With the adapter boundary frozen and the compiler layer implemented, future work should primarily expand surfaces and evaluations rather than mutate the kernel:
 
 \begin{itemize}[leftmargin=1.5em]
   \item XLSX, PDF, JSON, log, API, database, and email adapters,
   \item richer domain profiles,
   \item larger labeled evaluations,
+  \item more rigorous compiler-planning benchmarks,
   \item stronger static-analysis integration for code review,
   \item source snapshotting for external authorities,
   \item interactive audit-pack inspection UI,
@@ -477,8 +651,8 @@ With the adapter boundary frozen, future work should primarily expand surfaces r
 
 \section{Conclusion}
 
-MotifVM is an invariant-checked reasoning runtime. Its core contribution is the disciplined treatment of model and tool output as proposed state transitions rather than truth. Artifacts enter through adapters. Adapters emit evidence and facts. Domain passes propose claims. StatePatches are validated and authorized. Invariants define terminal states. Audit packs preserve the trace. The verifier checks the exported bundle.
+MotifVM is a motif-aware cognitive compiler over an invariant-checked reasoning runtime. Its core contribution is the disciplined treatment of model and tool output as proposed state transitions rather than truth. Tasks become MotifFrames and ReasoningPlans. Artifacts enter through adapters. Adapters emit evidence and facts. Domain passes propose claims. StatePatches are validated and authorized. Invariants define terminal states and replan actions. Audit packs preserve the trace. The verifier checks the exported bundle.
 
-This architecture separates perception, reasoning, trust, mutation, and portability. That separation is the kernel. The rest is adapters, domains, invariants, tools, and interfaces.
+This architecture separates planning, perception, reasoning, trust, mutation, and portability. The kernel remains small; the compiler decides how to approach the task; adapters and domains decide how the outside world enters. That separation is the system.
 
 \end{document}
