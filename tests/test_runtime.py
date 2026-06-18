@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from motifvm.adversarial import run_adversarial
+from motifvm.adapter_conformance import run_adapter_conformance
+from motifvm.adapters import adapt_path, verify_adapter_result
 from motifvm.audit import export_audit_pack
 from motifvm.verify_pack import verify_pack
 from motifvm.graph import compare_states
@@ -400,6 +402,31 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(authority["sectionId"], "crar-formula")
         self.assertIn("quotedRuleExcerpt", authority)
         self.assertIn("sectionHash", authority)
+
+    def test_csv_adapter_emits_evidence_refs_and_extracted_facts(self):
+        repo = Path(__file__).resolve().parents[1]
+        path = repo / "examples" / "crar_good.csv"
+
+        result = adapt_path({"id": "input:1", "label": path.name, "location": str(path)}, path)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.adapter_id, "adapter:csv:v0.5")
+        self.assertEqual(verify_adapter_result(result), [])
+        facts = [fact.to_dict() for fact in result.extracted_facts]
+        self.assertTrue(any(fact["kind"] == "dccb_component" and fact["value"]["component"] == "tier1" for fact in facts))
+
+    def test_adapter_conformance_runner_checks_builtin_adapters(self):
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(repo / "examples", root / "examples")
+
+            output = run_adapter_conformance(root)
+            with (output / "results.csv").open(encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(all(row["schema_valid"] == "yes" for row in rows))
 
     def test_schema_validation_rejects_bad_patch(self):
         errors = validate_state_patch({"nodesToAdd": "bad", "motifSupportDelta": {"nope": -1}})

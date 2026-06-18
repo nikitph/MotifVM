@@ -1,0 +1,144 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+
+\definecolor{motifblue}{HTML}{1F4E79}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=motifblue,
+  urlcolor=motifblue,
+  citecolor=motifblue
+}
+
+\title{\textbf{MotifVM: An Invariant-Checked Reasoning Runtime}\\
+\large Core Freeze at the Adapter Boundary}
+\author{Amul Rangne \and MotifVM Contributors}
+\date{Version 0.5.4}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Large language model systems often blur the boundary between perception, reasoning, execution, and trust. MotifVM separates these concerns by treating model and tool outputs as proposed state transitions over an explicit cognitive state. This paper describes the v0.5.4 core freeze: artifacts enter through adapters, adapters emit hash-bound evidence references and normalized extracted facts, passes propose state patches, and the runtime validates, authorizes, applies, verifies, commits, and exports independently verifiable audit packs. The result is not another agent framework, but a small reasoning kernel with device-driver-like artifact adapters.
+\end{abstract}
+
+\section{Thesis}
+
+MotifVM reframes the LLM reasoning problem. Instead of asking whether a model can reason over arbitrary messy inputs, MotifVM asks whether messy inputs can be converted into stable evidence and facts, and whether proposed reasoning transitions can be checked before they become state.
+
+\[
+\text{Artifact} \rightarrow \text{EvidenceRef} \rightarrow \text{ExtractedFact} \rightarrow \text{Claim}
+\]
+
+\[
+\text{CognitiveState} + \text{StatePatch}
+\rightarrow \text{validate}
+\rightarrow \text{authorize}
+\rightarrow \text{apply}
+\rightarrow \text{verify}
+\rightarrow \text{commit}
+\]
+
+This division is the central design choice. Text and chaos remain at the boundary. Structure exists inside the virtual machine.
+
+\section{Kernel and Drivers}
+
+The MotifVM kernel contains the state model, patch semantics, permissions, invariants, terminal states, audit packs, and verifier. Artifact adapters are analogous to device drivers. They let the kernel speak to external artifact types without changing the kernel itself.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Kernel primitive} & \textbf{Role} \\
+\midrule
+CognitiveState & Explicit runtime memory \\
+StatePatch & Only mutation vehicle \\
+PatchAuthorization & Permission boundary \\
+ArtifactAdapter & Artifact ingestion driver \\
+EvidenceRef & Stable hash-bound locator \\
+ExtractedFact & Normal form before claims \\
+Invariant & Runtime correctness predicate \\
+AuthorityRef & Source-bound rule reference \\
+TerminalState & Committed success or failure \\
+AuditPack & Portable evidence bundle \\
+PackVerifier & Independent consistency checker \\
+PatchTimeline & State-transition log \\
+ReasoningGraph & Claim/evidence topology \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Adapter Boundary}
+
+An artifact adapter has one job: convert an external artifact into evidence and facts. It may not mutate cognitive state. It may not emit terminal claims. It may not mark an invariant as passed. It is a perception layer, not a reasoning layer.
+
+\[
+\text{ArtifactAdapter}(a) =
+(\text{EvidenceRef}^{*}, \text{ExtractedFact}^{*})
+\]
+
+Each \texttt{EvidenceRef} contains an input identifier, input hash, locator type, locator, and excerpt. Each \texttt{ExtractedFact} references one of those evidence records and carries a normalized value with confidence and extraction metadata.
+
+\section{ExtractedFact Normal Form}
+
+The v0.5.4 milestone makes \texttt{ExtractedFact} first-class. This is the bridge between raw evidence and domain claims. For example:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item A CSV row \texttt{tier1,120} becomes a \texttt{dccb\_component} fact.
+  \item A diff line \texttt{return True} becomes a \texttt{code\_added\_line} fact.
+  \item A changed repository file becomes a \texttt{repo\_changed\_file} fact.
+\end{itemize}
+
+Facts are deliberately weaker than claims. A fact says what was extracted. A claim says what the runtime concludes after domain logic, authority, and invariants.
+
+\section{Patch Semantics}
+
+No actor writes directly to \texttt{CognitiveState}. Passes, tools, adapters, and LLM calls can only propose \texttt{StatePatch} transitions. The runtime then checks schema validity, role authorization, graph consistency, domain invariants, and terminal semantics.
+
+\begin{quote}
+LLM and tool outputs do not become truth. They become proposed transitions.
+\end{quote}
+
+This creates a clean trust boundary. A model may summarize. It may not silently change terminal status, invariant results, input manifests, authority references, or source artifacts.
+
+\section{Audit Packs}
+
+An audit pack is a portable evidence bundle. It contains the committed state, graph, lineage, invariants, input manifest, extracted facts, authority references, LLM calls, reconciliation patches, and patch timeline.
+
+The verifier checks internal consistency without rerunning the task: input hashes, authority hashes, section hashes, graph endpoints, lineage references, reconciliation policy, patch timeline shape, and adapter-output conformance.
+
+\section{Results}
+
+By v0.5.4, MotifVM has passed the following release gates:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Version} & \textbf{Core proof} & \textbf{Evidence} \\
+\midrule
+0.1.8 & Kernel and two-domain audit packs & Commit + audit exports \\
+0.2.5 & Provider boundary and evaluation & Structured calls + eval harness \\
+0.3.5 & Adversarial reliability & 20-case adversarial suite \\
+0.4.5 & Scale and integration & Repository review + adversarial-100 \\
+0.5.4 & Adapter boundary freeze & Adapter conformance + extracted facts \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Limitations}
+
+MotifVM does not prove that every domain rule is complete, every regulation is current, or every security flaw is detected. It proves something narrower and more architectural: the runtime preserved the declared evidence, authority, permission, transition, invariant, and audit-pack boundaries for the task it ran.
+
+\section{Conclusion}
+
+MotifVM is best understood as an auditable cognitive virtual machine. Its core invention is not another orchestration graph or prompt template. Its core invention is the refusal to treat model and tool output as state. Output must pass through adapters, facts, patches, authorization, invariants, and committed terminal states.
+
+With the adapter boundary frozen, future work becomes surface expansion: more adapters, more domain profiles, more invariants, better extraction, better user interfaces, larger evaluations, and real deployments. The kernel itself has a stable shape.
+
+\end{document}

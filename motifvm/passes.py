@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .adapters import adapt_path
 from .model import CompilerPass, PassResult, StatePatch
 from .storage import utc_now
 
@@ -79,28 +80,31 @@ def resolve_inputs(state: dict[str, Any], root: Path) -> PassResult:
             )
         )
         if resolved:
-            digest = _tree_hash(path) if path.is_dir() else _sha256(path)
-            rows_read = _count_csv_rows(path) if path.is_file() and path.suffix.lower() == ".csv" else None
-            artifacts.append(
-                {
-                    "id": f"artifact:input:{item['id']}",
-                    "type": "resolved_input",
-                    "content": {
-                        "inputId": item["id"],
-                        "path": str(path),
-                        "sha256": digest,
-                        "rowsRead": rows_read,
-                        "kind": "repo" if path.is_dir() else "file",
-                        "readAt": utc_now(),
-                    },
-                    "producedBy": "resolve_inputs",
-                    "timestamp": utc_now(),
-                }
-            )
-            if path.is_dir():
-                repo_artifact, file_artifacts = _repo_review_artifacts(item["id"], path)
-                artifacts.append(repo_artifact)
-                artifacts.extend(file_artifacts)
+            adapter_result = adapt_path(item, path)
+            if adapter_result is None:
+                digest = _tree_hash(path) if path.is_dir() else _sha256(path)
+                rows_read = _count_csv_rows(path) if path.is_file() and path.suffix.lower() == ".csv" else None
+                artifacts.append(
+                    {
+                        "id": f"artifact:input:{item['id']}",
+                        "type": "resolved_input",
+                        "content": {
+                            "inputId": item["id"],
+                            "path": str(path),
+                            "sha256": digest,
+                            "rowsRead": rows_read,
+                            "kind": "repo" if path.is_dir() else "file",
+                            "readAt": utc_now(),
+                        },
+                        "producedBy": "resolve_inputs",
+                        "timestamp": utc_now(),
+                    }
+                )
+            else:
+                adapter_artifact = adapter_result.to_artifact()
+                adapter_artifact["timestamp"] = utc_now()
+                artifacts.extend(adapter_result.resolved_artifacts)
+                artifacts.append(adapter_artifact)
     patch = StatePatch(
         nodes_to_add=nodes,
         edges_to_add=[edge(f"input:{i['id']}", "goal:root", "supports") for i in updated_inputs],
@@ -248,28 +252,97 @@ def build_evidence_graph(state: dict[str, Any], root: Path) -> PassResult:
     nodes = []
     edges = []
     for artifact in state.get("artifacts", []):
-        if artifact.get("type") == "repo_review_input":
-            diff_nodes, diff_edges = _diff_evidence_nodes_from_text(
-                artifact["content"].get("diffText", ""),
-                artifact["content"].get("repoPath", "repo"),
-                artifact["content"].get("inputId"),
-                artifact["content"].get("diffHash"),
-            )
-            nodes.extend(diff_nodes)
-            edges.extend(diff_edges)
+        if artifact.get("type") != "adapter_output":
+            continue
+        content = artifact.get("content", {})
+        adapter_id = content.get("adapterId", "")
+        if adapter_id == "adapter:csv:v0.5":
+            path = Path(content.get("path", "input.csv"))
             nodes.append(
                 node(
-                    f"evidence:repo:{Path(artifact['content'].get('repoPath', 'repo')).name}",
+                    f"evidence:csv:{path.stem}",
                     "evidence",
-                    f"Repository diff contains {len(artifact['content'].get('changedFiles', []))} changed file(s).",
-                    "tool",
+                    f"CSV adapter extracted {len(content.get('extractedFacts', []))} fact(s).",
+                    "artifact_adapter",
                     "build_evidence_graph",
                     1.0,
-                    {"artifactId": artifact["id"], "changedFiles": artifact["content"].get("changedFiles", [])},
+                    {
+                        "path": str(path),
+                        "rowCount": len(content.get("extractedFacts", [])),
+                        "artifactId": artifact["id"],
+                        "inputHash": content.get("contentHash"),
+                        "inputRef": content.get("inputId"),
+                    },
                 )
             )
+        elif adapter_id == "adapter:repo:v0.5":
+            path = Path(content.get("path", "repo"))
+            nodes.append(
+                node(
+                    f"evidence:repo:{path.name}",
+                    "evidence",
+                    f"Repository adapter extracted {len(content.get('extractedFacts', []))} fact(s).",
+                    "artifact_adapter",
+                    "build_evidence_graph",
+                    1.0,
+                    {
+                        "path": str(path),
+                        "artifactId": artifact["id"],
+                        "inputHash": content.get("contentHash"),
+                        "inputRef": content.get("inputId"),
+                        "changedFiles": content.get("metadata", {}).get("changedFiles", []),
+                    },
+                )
+            )
+        for evidence_ref in content.get("evidenceRefs", []):
+            meta = dict(evidence_ref.get("metadata", {}))
+            meta.update(
+                {
+                    "evidenceRef": evidence_ref,
+                    "inputHash": evidence_ref.get("inputHash"),
+                    "inputRef": evidence_ref.get("inputId"),
+                }
+            )
+            if evidence_ref.get("locatorType") == "row":
+                meta.setdefault("rowNumber", evidence_ref.get("locator"))
+                meta.setdefault("component", evidence_ref.get("metadata", {}).get("component"))
+                content_text = f"CSV row {evidence_ref.get('locator')}: {evidence_ref.get('excerpt')}"
+            elif evidence_ref.get("locatorType") == "line":
+                meta.setdefault("rowNumber", evidence_ref.get("metadata", {}).get("newLine"))
+                content_text = f"Added line {evidence_ref.get('locator')}: {evidence_ref.get('excerpt')}"
+            else:
+                content_text = f"Evidence {evidence_ref.get('locator')}: {evidence_ref.get('excerpt')}"
+            nodes.append(
+                node(
+                    evidence_ref["id"],
+                    "evidence",
+                    content_text,
+                    "artifact_adapter",
+                    "build_evidence_graph",
+                    1.0,
+                    meta,
+                )
+            )
+            edges.append(edge(evidence_ref["id"], "goal:root", "supports"))
+        facts = content.get("extractedFacts", [])
+        if facts:
+            nodes.append(
+                node(
+                    f"facts:{content.get('inputId')}",
+                    "evidence",
+                    f"Adapter extracted {len(facts)} normalized fact(s).",
+                    "artifact_adapter",
+                    "build_evidence_graph",
+                    1.0,
+                    {"adapterId": content.get("adapterId"), "factCount": len(facts)},
+                )
+            )
+    for artifact in state.get("artifacts", []):
+        if artifact.get("type") == "repo_review_input":
             continue
         if artifact.get("type") != "resolved_input":
+            continue
+        if artifact.get("producedBy") == "artifact_adapter":
             continue
         path = Path(artifact["content"]["path"])
         input_hash = artifact["content"].get("sha256")
@@ -577,7 +650,13 @@ def _execute_crar(state: dict[str, Any]) -> PassResult:
     raw_values: dict[str, str] = {}
     duplicate_keys: set[str] = set()
     source_path = csv_paths[0]
-    for row in _read_csv_rows(source_path):
+    facts = _facts_by_kind(state, "dccb_component")
+    rows = [
+        {"component": fact.get("value", {}).get("component"), "amount": fact.get("value", {}).get("amount")}
+        for fact in facts
+        if fact.get("metadata", {}).get("path") == str(source_path)
+    ] or _read_csv_rows(source_path)
+    for row in rows:
         key = (row.get("component") or row.get("name") or "").strip().lower()
         if not key:
             continue
@@ -771,7 +850,9 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
     if not diff_paths and repo_review is None:
         return PassResult("failed", StatePatch(), error="No resolved diff.patch input was available.")
     path = diff_paths[0] if diff_paths else Path(repo_review["content"]["repoPath"]) / "diff.patch"
-    added = _parse_added_lines(path) if diff_paths else _parse_added_lines_from_text(repo_review["content"].get("diffText", ""), str(path))
+    added = _code_added_lines_from_facts(state, str(path))
+    if not added:
+        added = _parse_added_lines(path) if diff_paths else _parse_added_lines_from_text(repo_review["content"].get("diffText", ""), str(path))
     findings = []
     for item in added:
         lowered = item["text"].lower().strip()
@@ -822,7 +903,9 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
         "claimNodeId": "claim:code:review_risk",
         "evidenceNodeIds": evidence_ids,
         "toolCallIds": ["execute_subtasks"],
-        "inputRefs": [
+        "inputRefs": [repo_review["content"].get("inputId")]
+        if repo_review
+        else [
             item["id"]
             for item in state["taskAst"].get("inputs", [])
             if item.get("location") == str(path)
@@ -959,6 +1042,39 @@ def _code_finding(finding_id: str, kind: str, message: str, item: dict[str, Any]
         "evidenceNodeId": item["evidenceNodeId"],
         "locator": item["locator"],
     }
+
+
+def _facts_by_kind(state: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    facts = []
+    for artifact in state.get("artifacts", []):
+        if artifact.get("type") == "adapter_output":
+            facts.extend(
+                fact
+                for fact in artifact.get("content", {}).get("extractedFacts", [])
+                if fact.get("kind") == kind
+            )
+    return facts
+
+
+def _code_added_lines_from_facts(state: dict[str, Any], source_path: str) -> list[dict[str, Any]]:
+    facts = _facts_by_kind(state, "code_added_line")
+    if not facts:
+        return []
+    items = []
+    for fact in facts:
+        value = fact.get("value", {})
+        metadata = fact.get("metadata", {})
+        items.append(
+            {
+                "path": value.get("path", Path(source_path).name),
+                "newLine": value.get("newLine", 0),
+                "locator": metadata.get("locator", f"{value.get('path', Path(source_path).name)}:{value.get('newLine', 0)}"),
+                "text": value.get("text", ""),
+                "function": value.get("function"),
+                "evidenceNodeId": fact.get("evidenceRefId"),
+            }
+        )
+    return items
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:

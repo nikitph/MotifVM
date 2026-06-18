@@ -8,6 +8,7 @@ from pathlib import Path
 from .audit import export_audit_pack
 from .adversarial import run_adversarial
 from .adversarial_100 import run_adversarial_100
+from .adapter_conformance import run_adapter_conformance
 from .eval import run_evaluation
 from .graph import compare_states
 from .reporting import load_state, render_report
@@ -60,6 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     adversarial.add_argument("--expected", default=None)
 
     sub.add_parser("adversarial-100", help="Run the larger 100-case adversarial evaluation suite.")
+
+    sub.add_parser("adapter-conformance", help="Run adapter contract conformance checks.")
 
     verify = sub.add_parser("verify-pack", help="Verify an exported audit pack.")
     verify.add_argument("pack")
@@ -147,6 +150,10 @@ def main(argv: list[str] | None = None) -> None:
         if args.command == "adversarial-100":
             target = run_adversarial_100(root)
             print(f"Adversarial-100 outputs written to {target}")
+            return
+        if args.command == "adapter-conformance":
+            target = run_adapter_conformance(root)
+            print(f"Adapter conformance outputs written to {target}")
             return
         if args.command == "verify-pack":
             ok, issues = verify_pack(Path(args.pack))

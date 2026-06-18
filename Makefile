@@ -1,4 +1,4 @@
-.PHONY: test demo eval adversarial adversarial-100
+.PHONY: test demo eval adversarial adversarial-100 adapter-conformance
 
 test:
 	python3 -m unittest discover -s tests
@@ -15,3 +15,6 @@ adversarial:
 
 adversarial-100:
 	python3 -m motifvm.adversarial_100
+
+adapter-conformance:
+	python3 -m motifvm.adapter_conformance

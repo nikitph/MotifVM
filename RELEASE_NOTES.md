@@ -1,5 +1,42 @@
 # Release Notes
 
+## v0.5.4
+
+MotifVM v0.5.4 freezes the kernel boundary around artifact adapters and the `ExtractedFact` normal form. CSV, git diff, and repository inputs now enter through `ArtifactAdapter` contracts that emit hash-bound `EvidenceRef` records and normalized `ExtractedFact` records before any domain pass constructs claims.
+
+### Added
+
+- Core adapter primitives:
+  - `ArtifactAdapter`
+  - `AdapterResult`
+  - `EvidenceRef`
+  - `ExtractedFact`
+- Built-in adapters:
+  - CSV adapter
+  - git diff adapter
+  - repository diff adapter
+- Adapter conformance runner:
+
+```bash
+make adapter-conformance
+```
+
+- Audit-pack `extracted_facts.json` export.
+- Pack verifier checks for adapter output conformance.
+- Kernel freeze docs:
+  - `docs/kernel_contract.md`
+  - `docs/adapter_contract.md`
+  - `docs/fact_contract.md`
+  - `docs/patch_contract.md`
+  - `docs/audit_pack_contract.md`
+- LaTeX paper:
+  - `docs/motifvm_core_freeze_paper.tex`
+  - `docs/motifvm_core_freeze_paper.pdf`
+
+### Verification
+
+See `docs/results_v0_5_4.md`.
+
 ## Frozen Proof Table
 
 | Version | Core proof |
@@ -8,6 +45,7 @@
 | 0.2.5 | provider boundary + authority hashing + eval |
 | 0.3.5 | adversarial reliability + patch authorization + pack verifier |
 | 0.4.5 | repository-scale inputs + LLM narrative boundary + authority section citations + patch timeline + adversarial-100 |
+| 0.5.4 | adapter boundary + ExtractedFact normal form + kernel freeze contracts |
 
 ## v0.4.5
 

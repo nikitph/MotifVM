@@ -74,6 +74,12 @@ Run the larger adversarial suite:
 make adversarial-100
 ```
 
+Run adapter conformance checks:
+
+```bash
+make adapter-conformance
+```
+
 ## Examples
 
 Successful DCCB CRAR verification:
@@ -172,6 +178,28 @@ python3 -m motifvm verify-pack <audit-pack-dir>
 ```
 
 Audit packs also include `patch_timeline.json` and `patch_timeline.md`, which show each authorized or rejected StatePatch transition.
+
+Audit packs include `extracted_facts.json`, which records adapter-emitted `EvidenceRef` and `ExtractedFact` records before domain passes convert facts into claims.
+
+## Kernel Freeze
+
+MotifVM v0.5.4 freezes the core boundary around artifact adapters and extracted facts:
+
+```text
+ArtifactAdapter -> EvidenceRef -> ExtractedFact -> StatePatch -> invariants -> terminal state -> audit pack
+```
+
+Contract docs:
+
+- [Kernel contract](docs/kernel_contract.md)
+- [Adapter contract](docs/adapter_contract.md)
+- [Fact contract](docs/fact_contract.md)
+- [Patch contract](docs/patch_contract.md)
+- [Audit pack contract](docs/audit_pack_contract.md)
+
+Paper:
+
+- [MotifVM: An Invariant-Checked Reasoning Runtime](docs/motifvm_core_freeze_paper.pdf)
 
 ## Demo Package
 

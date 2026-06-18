@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from .adapters import verify_adapter_result
+
 
 def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
     issues: list[dict[str, str]] = []
@@ -44,6 +46,9 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
             issues.append({"check": "PACK_GRAPH_ENDPOINT", "message": f"Bad edge endpoint: {edge}"})
 
     for artifact in state.get("artifacts", []):
+        if artifact.get("type") == "adapter_output":
+            for error in verify_adapter_result(artifact.get("content", {})):
+                issues.append({"check": "PACK_ADAPTER_OUTPUT", "message": error})
         if artifact.get("type") == "reconciliation_patch":
             content = artifact.get("content", {})
             if content.get("sourceMutated") is not False:
@@ -66,6 +71,7 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
         "lineage.json",
         "invariants.json",
         "inputs_manifest.json",
+        "extracted_facts.json",
         "patch_timeline.json",
         "patch_timeline.md",
     ):

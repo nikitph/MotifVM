@@ -1,6 +1,6 @@
 [project]
 name = "motifvm"
-version = "0.4.5"
+version = "0.5.4"
 description = "A dependency-free MVP of the MotifVM runtime loop."
 requires-python = ">=3.11"
 

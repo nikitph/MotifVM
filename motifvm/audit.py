@@ -32,6 +32,7 @@ def export_audit_pack(root: Path, commit_id: str, output_dir: Path | None = None
     write_json(target / "invariants.json", {"invariants": state.get("invariants", [])})
     write_json(target / "llm_calls.json", {"llmCalls": state.get("llmCalls", [])})
     write_json(target / "inputs_manifest.json", {"inputs": state.get("inputManifest", [])})
+    write_json(target / "extracted_facts.json", _extracted_facts_payload(state))
     write_json(target / "lineage.json", _lineage_payload(state))
     write_json(target / "patch_timeline.json", {"patches": state.get("patchTimeline", [])})
     write_text(target / "patch_timeline.md", _patch_timeline_markdown(state))
@@ -84,6 +85,29 @@ def _lineage_payload(state: dict[str, Any]) -> dict[str, Any]:
         "authorityRefs": state.get("authorityRefs", []),
         "outputs": outputs,
     }
+
+
+def _extracted_facts_payload(state: dict[str, Any]) -> dict[str, Any]:
+    adapter_outputs = []
+    facts = []
+    evidence_refs = []
+    for artifact in state.get("artifacts", []):
+        if artifact.get("type") != "adapter_output":
+            continue
+        content = artifact.get("content", {})
+        adapter_outputs.append(
+            {
+                "artifactId": artifact.get("id"),
+                "adapterId": content.get("adapterId"),
+                "adapterVersion": content.get("adapterVersion"),
+                "inputId": content.get("inputId"),
+                "path": content.get("path"),
+                "contentHash": content.get("contentHash"),
+            }
+        )
+        facts.extend(content.get("extractedFacts", []))
+        evidence_refs.extend(content.get("evidenceRefs", []))
+    return {"adapterOutputs": adapter_outputs, "evidenceRefs": evidence_refs, "extractedFacts": facts}
 
 
 def write_text(path: Path, text: str) -> None:

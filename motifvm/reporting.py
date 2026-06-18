@@ -57,6 +57,17 @@ def render_report(state: dict[str, Any], show_graph: bool = False) -> str:
             f"- {item.get('inputId')}: {item.get('path')} "
             f"sha256={str(item.get('sha256', ''))[:12]} rows={item.get('rowsRead')}"
         )
+    adapter_outputs = [artifact for artifact in state.get("artifacts", []) if artifact.get("type") == "adapter_output"]
+    lines.extend(["", "Adapters", "--------"])
+    if adapter_outputs:
+        for artifact in adapter_outputs:
+            content = artifact.get("content", {})
+            lines.append(
+                f"- {content.get('adapterId')} v{content.get('adapterVersion')} "
+                f"facts={len(content.get('extractedFacts', []))} evidence={len(content.get('evidenceRefs', []))}"
+            )
+    else:
+        lines.append("- none")
     lines.extend([
         "",
         "Authority",
