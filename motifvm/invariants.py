@@ -43,6 +43,11 @@ def _authority_refs_for_invariant(invariant_id: str) -> list[str]:
         "CODE_005_TEST_STATUS_RECORDED": ["authority:code_review:test_policy"],
         "CODE_006_FINAL_RISK_HAS_EVIDENCE": ["authority:code_review:review_policy"],
         "CODE_007_REVIEW_TERMINAL_STATUS_VALID": ["authority:code_review:review_policy"],
+        "CODE_008_NO_DANGEROUS_SUBPROCESS_SHELL": ["authority:code_review:security_policy"],
+        "CODE_009_NO_EVAL_EXEC": ["authority:code_review:security_policy"],
+        "CODE_010_NO_DISABLED_TLS_VERIFY": ["authority:code_review:security_policy"],
+        "CODE_011_NO_SQL_STRING_INTERPOLATION": ["authority:code_review:security_policy"],
+        "CODE_012_NO_UNSAFE_DESERIALIZATION": ["authority:code_review:security_policy"],
     }
     return mapping.get(invariant_id, [])
 
@@ -475,6 +480,56 @@ def check_code_no_secret_literal(state: dict[str, Any]) -> dict[str, Any] | None
     )
 
 
+def check_code_no_dangerous_shell(state: dict[str, Any]) -> dict[str, Any] | None:
+    return _code_finding_invariant(
+        state,
+        "CODE_008_NO_DANGEROUS_SUBPROCESS_SHELL",
+        "shell_true",
+        "Added lines do not use subprocess shell=True.",
+        "Dangerous subprocess call uses shell=True.",
+    )
+
+
+def check_code_no_eval_exec(state: dict[str, Any]) -> dict[str, Any] | None:
+    return _code_finding_invariant(
+        state,
+        "CODE_009_NO_EVAL_EXEC",
+        "eval_exec",
+        "Added lines do not use eval/exec.",
+        "Added line uses eval/exec.",
+    )
+
+
+def check_code_no_disabled_tls(state: dict[str, Any]) -> dict[str, Any] | None:
+    return _code_finding_invariant(
+        state,
+        "CODE_010_NO_DISABLED_TLS_VERIFY",
+        "disabled_tls",
+        "Added lines do not disable TLS verification.",
+        "TLS verification is disabled.",
+    )
+
+
+def check_code_no_sql_interpolation(state: dict[str, Any]) -> dict[str, Any] | None:
+    return _code_finding_invariant(
+        state,
+        "CODE_011_NO_SQL_STRING_INTERPOLATION",
+        "sql_interpolation",
+        "Added lines do not use SQL string interpolation.",
+        "SQL appears to use string interpolation.",
+    )
+
+
+def check_code_no_unsafe_deserialization(state: dict[str, Any]) -> dict[str, Any] | None:
+    return _code_finding_invariant(
+        state,
+        "CODE_012_NO_UNSAFE_DESERIALIZATION",
+        "unsafe_deserialization",
+        "Added lines do not use unsafe deserialization APIs.",
+        "Unsafe deserialization API detected.",
+    )
+
+
 def check_code_test_status_recorded(state: dict[str, Any]) -> dict[str, Any] | None:
     review = _code_review_artifact(state)
     if state.get("taskAst", {}).get("meta", {}).get("domain") != "code_review":
@@ -869,6 +924,11 @@ def run_invariants(state: dict[str, Any]) -> list[dict[str, Any]]:
         check_code_diff_has_lineage(state),
         check_code_no_unconditional_auth_allow(state),
         check_code_no_secret_literal(state),
+        check_code_no_dangerous_shell(state),
+        check_code_no_eval_exec(state),
+        check_code_no_disabled_tls(state),
+        check_code_no_sql_interpolation(state),
+        check_code_no_unsafe_deserialization(state),
         check_code_test_status_recorded(state),
         check_code_final_risk_has_evidence(state),
         check_code_review_terminal_status_valid(state),
@@ -914,4 +974,25 @@ def _code_review_artifact(state: dict[str, Any]) -> dict[str, Any] | None:
             if artifact.get("type") == "code_review_result"
         ),
         None,
+    )
+
+
+def _code_finding_invariant(
+    state: dict[str, Any],
+    invariant_id: str,
+    kind: str,
+    pass_message: str,
+    fail_message: str,
+) -> dict[str, Any] | None:
+    review = _code_review_artifact(state)
+    if state.get("taskAst", {}).get("meta", {}).get("domain") != "code_review":
+        return None
+    findings = review.get("content", {}).get("findings", []) if review else []
+    bad = [finding["evidenceNodeId"] for finding in findings if finding.get("kind") == kind]
+    return result(
+        invariant_id,
+        not bad,
+        "error",
+        pass_message if not bad else fail_message,
+        bad,
     )

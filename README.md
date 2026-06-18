@@ -46,6 +46,14 @@ make demo
 
 Demo outputs are written to `.motifvm/demo_outputs/`, including audit packs and `benchmark.csv`.
 
+Run the evaluation harness:
+
+```bash
+make eval
+```
+
+Evaluation outputs are written to `.motifvm/eval_outputs/`.
+
 ## Examples
 
 Successful DCCB CRAR verification:
@@ -69,6 +77,18 @@ python3 -m motifvm run-task "Review this code diff for security risk" \
   --domain code_review \
   --input examples/code_review/unsafe_auth_bypass/diff.patch
 ```
+
+Structured LLM call boundary with DeepSeek:
+
+```bash
+DEEPSEEK_API_KEY=... python3 -m motifvm run-task \
+  "Review this code diff for security risk" \
+  --domain code_review \
+  --input examples/code_review/unsafe_auth_bypass/diff.patch \
+  --llm deepseek
+```
+
+The API key is read from the environment and is not written to state, logs, commits, or audit packs.
 
 Compare two committed runs:
 

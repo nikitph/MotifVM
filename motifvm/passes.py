@@ -759,6 +759,16 @@ def _execute_code_review(state: dict[str, Any]) -> PassResult:
                     "locator": item["locator"],
                 }
             )
+        if "shell=true" in lowered or "shell = true" in lowered:
+            findings.append(_code_finding("finding:code:shell_true", "shell_true", "Dangerous subprocess call uses shell=True.", item))
+        if lowered.startswith("eval(") or " eval(" in lowered or lowered.startswith("exec(") or " exec(" in lowered:
+            findings.append(_code_finding("finding:code:eval_exec", "eval_exec", "Added line uses eval/exec.", item))
+        if "verify=false" in lowered or "verify = false" in lowered:
+            findings.append(_code_finding("finding:code:disabled_tls", "disabled_tls", "TLS verification is disabled.", item))
+        if any(db in lowered for db in ("execute(", "query(")) and any(marker in lowered for marker in (" f\"", " f'", "%", ".format(")):
+            findings.append(_code_finding("finding:code:sql_interpolation", "sql_interpolation", "SQL appears to use string interpolation.", item))
+        if "pickle.loads" in lowered or "yaml.load(" in lowered:
+            findings.append(_code_finding("finding:code:unsafe_deserialization", "unsafe_deserialization", "Unsafe deserialization API detected.", item))
     risk = "unsafe" if findings else "safe"
     evidence_ids = [finding["evidenceNodeId"] for finding in findings] or [
         item["evidenceNodeId"] for item in added[:1]
@@ -891,6 +901,17 @@ def _invalid_crar_result(source_path: Path, message: str, raw_values: dict[str, 
         motif_support_delta={"feedback": 0.2, "invariant": 0.1},
     )
     return PassResult("success", patch, tool_calls=1)
+
+
+def _code_finding(finding_id: str, kind: str, message: str, item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": finding_id,
+        "kind": kind,
+        "severity": "error",
+        "message": message,
+        "evidenceNodeId": item["evidenceNodeId"],
+        "locator": item["locator"],
+    }
 
 
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:

@@ -44,6 +44,9 @@ def export_audit_pack(root: Path, commit_id: str, output_dir: Path | None = None
     for artifact in state.get("artifacts", []):
         safe_id = artifact.get("id", "artifact").replace(":", "_").replace("/", "_")
         write_json(target / "artifacts" / f"{safe_id}.json", artifact)
+    explorer = root / "static" / "graph_explorer.html"
+    if explorer.exists():
+        shutil.copyfile(explorer, target / "graph_explorer.html")
     return target
 
 

@@ -1,0 +1,65 @@
+[
+  {
+    "case": "dccb_good",
+    "domain": "dccb_audit",
+    "request": "Verify CRAR using examples/crar_good.csv",
+    "inputs": [],
+    "expectedStatus": "committed_success",
+    "expectedFailedInvariant": "",
+    "expectedReconciliation": false
+  },
+  {
+    "case": "dccb_mismatch",
+    "domain": "dccb_audit",
+    "request": "Verify CRAR using examples/crar_mismatch.csv",
+    "inputs": [],
+    "expectedStatus": "committed_failed",
+    "expectedFailedInvariant": "DCCB_003_REPORTED_CRAR_MATCH",
+    "expectedReconciliation": true
+  },
+  {
+    "case": "dccb_below_threshold",
+    "domain": "dccb_audit",
+    "request": "Verify CRAR using examples/crar_below_threshold.csv",
+    "inputs": [],
+    "expectedStatus": "committed_failed",
+    "expectedFailedInvariant": "DCCB_002_THRESHOLD",
+    "expectedReconciliation": false
+  },
+  {
+    "case": "dccb_missing_rwa",
+    "domain": "dccb_audit",
+    "request": "Verify CRAR using examples/crar_missing_rwa.csv",
+    "inputs": [],
+    "expectedStatus": "committed_failed",
+    "expectedFailedInvariant": "DCCB_004_CAPITAL_COMPONENTS_PRESENT",
+    "expectedReconciliation": false
+  },
+  {
+    "case": "code_safe",
+    "domain": "code_review",
+    "request": "Review this code diff for security risk",
+    "inputs": ["examples/code_review/safe/diff.patch"],
+    "expectedStatus": "committed_success",
+    "expectedFailedInvariant": "",
+    "expectedReconciliation": false
+  },
+  {
+    "case": "code_auth_bypass",
+    "domain": "code_review",
+    "request": "Review this code diff for security risk",
+    "inputs": ["examples/code_review/unsafe_auth_bypass/diff.patch"],
+    "expectedStatus": "committed_failed",
+    "expectedFailedInvariant": "CODE_003_NO_UNCONDITIONAL_AUTH_ALLOW",
+    "expectedReconciliation": false
+  },
+  {
+    "case": "code_secret_literal",
+    "domain": "code_review",
+    "request": "Review this code diff for security risk",
+    "inputs": ["examples/code_review/secret_literal/diff.patch"],
+    "expectedStatus": "committed_failed",
+    "expectedFailedInvariant": "CODE_004_NO_SECRET_LITERAL",
+    "expectedReconciliation": false
+  }
+]

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MotifVM Audit Pack Explorer</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+    aside { border-right: 1px solid #ddd; padding: 16px; overflow: auto; }
+    main { padding: 16px; overflow: auto; }
+    pre { white-space: pre-wrap; background: #f7f7f7; padding: 12px; border: 1px solid #ddd; }
+    .node { border: 1px solid #ccc; border-radius: 6px; padding: 8px; margin: 8px 0; }
+    .claim { border-left: 5px solid #b85; }
+    .evidence { border-left: 5px solid #58b; }
+    .output { border-left: 5px solid #5a7; }
+    .error { border-left: 5px solid #b55; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>MotifVM Explorer</h1>
+    <p>Open this file from an exported audit pack. Choose <code>state.json</code>.</p>
+    <input id="file" type="file" accept="application/json">
+    <h2>Terminal</h2>
+    <pre id="terminal">No state loaded.</pre>
+    <h2>Invariants</h2>
+    <pre id="invariants"></pre>
+  </aside>
+  <main>
+    <h2>Graph Nodes</h2>
+    <div id="nodes"></div>
+  </main>
+  <script>
+    document.getElementById("file").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      const state = JSON.parse(await file.text());
+      document.getElementById("terminal").textContent =
+        `Status: ${state.status}\nReason: ${state.terminalReason || "none"}\nCommit: ${state.parentCommit || "none"}`;
+      document.getElementById("invariants").textContent = state.invariants
+        .map(i => `${i.passed ? "PASS" : i.severity.toUpperCase()} ${i.invariantId}: ${i.message}`)
+        .join("\n");
+      const nodes = document.getElementById("nodes");
+      nodes.innerHTML = "";
+      Object.entries(state.graph.nodes).forEach(([id, node]) => {
+        const div = document.createElement("div");
+        div.className = `node ${node.type}`;
+        div.innerHTML = `<strong>${id}</strong><br><em>${node.type}</em><p>${node.content}</p>`;
+        nodes.appendChild(div);
+      });
+    });
+  </script>
+</body>
+</html>

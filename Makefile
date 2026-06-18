@@ -1,4 +1,4 @@
-.PHONY: test demo
+.PHONY: test demo eval
 
 test:
 	python3 -m unittest discover -s tests
@@ -6,3 +6,6 @@ test:
 
 demo:
 	python3 -m motifvm.demo
+
+eval:
+	python3 -m motifvm.eval

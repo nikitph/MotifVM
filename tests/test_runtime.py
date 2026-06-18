@@ -6,6 +6,7 @@ from pathlib import Path
 
 from motifvm.audit import export_audit_pack
 from motifvm.graph import compare_states
+from motifvm.llm import DeepSeekLLMClient
 from motifvm.passes import registry
 from motifvm.runtime import (
     check_pass_preconditions,
@@ -15,6 +16,7 @@ from motifvm.runtime import (
     run_task,
     select_passes,
 )
+from motifvm.schema import validate_state_patch
 
 
 class RuntimeTests(unittest.TestCase):
@@ -313,6 +315,22 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual([call["callType"] for call in state["llmCalls"]], ["CALL_PARSE", "CALL_DIAGNOSE"])
             export_path = export_audit_pack(root, "001")
             self.assertTrue((export_path / "llm_calls.json").exists())
+
+    def test_schema_validation_rejects_bad_patch(self):
+        errors = validate_state_patch({"nodesToAdd": "bad", "motifSupportDelta": {"nope": -1}})
+        self.assertTrue(any("nodesToAdd" in error for error in errors))
+        self.assertTrue(any("Unknown motif key" in error for error in errors))
+
+    def test_deepseek_requires_env_key(self):
+        import os
+
+        previous = os.environ.pop("DEEPSEEK_API_KEY", None)
+        try:
+            with self.assertRaises(ValueError):
+                DeepSeekLLMClient()
+        finally:
+            if previous is not None:
+                os.environ["DEEPSEEK_API_KEY"] = previous
 
 
 if __name__ == "__main__":

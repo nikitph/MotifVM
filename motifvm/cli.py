@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .audit import export_audit_pack
+from .eval import run_evaluation
 from .graph import compare_states
 from .reporting import load_state, render_report
 from .runtime import run_task
@@ -21,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("input", help="Natural language request or path to a TaskAST/CognitiveState JSON file.")
     run.add_argument("--domain", default=None, help="Domain profile name, e.g. dccb_audit.")
     run.add_argument("--input", action="append", dest="input_files", help="Input artifact path. Can be repeated.")
-    run.add_argument("--llm", choices=["mock"], default=None, help="Use a structured LLM provider.")
+    run.add_argument("--llm", choices=["mock", "deepseek"], default=None, help="Use a structured LLM provider.")
     run.add_argument("--dry-run", action="store_true", help="Plan only; do not execute passes.")
     run.add_argument("--verbose", action="store_true", help="Print pass execution progress.")
     run.add_argument("--json", action="store_true", help="Print the resulting state JSON.")
@@ -30,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_task_cmd.add_argument("input")
     run_task_cmd.add_argument("--domain", default=None)
     run_task_cmd.add_argument("--input", action="append", dest="input_files")
-    run_task_cmd.add_argument("--llm", choices=["mock"], default=None)
+    run_task_cmd.add_argument("--llm", choices=["mock", "deepseek"], default=None)
     run_task_cmd.add_argument("--dry-run", action="store_true")
     run_task_cmd.add_argument("--verbose", action="store_true")
     run_task_cmd.add_argument("--json", action="store_true")
@@ -48,6 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("commit_a")
     compare.add_argument("commit_b")
     compare.add_argument("--json", action="store_true")
+
+    evaluate = sub.add_parser("eval", help="Run the MotifVM evaluation harness.")
+    evaluate.add_argument("--expected", default=None, help="Expected outcomes JSON. Defaults to eval/expected.json.")
 
     init = sub.add_parser("init", help="Initialize .motifvm directories.")
     init.add_argument("--domain", default=None)
@@ -117,6 +121,11 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"Invariant diffs: {len(diff['invariants'])}")
                 print(f"Claim additions: {', '.join(diff['claims']['added']) or 'none'}")
                 print(f"Artifact additions: {', '.join(diff['artifacts']['added']) or 'none'}")
+            return
+        if args.command == "eval":
+            expected = Path(args.expected).resolve() if args.expected else None
+            target = run_evaluation(root, expected)
+            print(f"Evaluation outputs written to {target}")
             return
         parser.error(f"Unsupported command: {args.command}")
     except Exception as exc:

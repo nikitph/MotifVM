@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import re
 import uuid
+import hashlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from .invariants import run_invariants
-from .llm import MockLLMClient, StructuredCallSpec
+from .llm import DeepSeekLLMClient, MockLLMClient, StructuredCallSpec
 from .model import MOTIF_KEYS, PHASE_ORDER, CompilerPass, PassResult, StatePatch, empty_motif_vector
 from .passes import edge, node, registry
 from .registry import load_domain_profile, validate_pass_graph
+from .schema import validate_cognitive_state, validate_state_patch
 from .storage import append_jsonl, commit_state, ensure_store, read_json, utc_now, write_json
 
 
@@ -148,7 +150,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.3",
                 "effectiveDate": None,
-                "location": "motifvm/invariants.py",
+                "location": "authority_sources/dccb/crar_rules.md#crar-formula",
+                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
                 "confidence": 0.8,
             },
             {
@@ -157,7 +160,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.3",
                 "effectiveDate": None,
-                "location": "motifvm/invariants.py",
+                "location": "authority_sources/dccb/crar_rules.md#threshold",
+                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
                 "confidence": 0.8,
             },
             {
@@ -166,7 +170,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.3",
                 "effectiveDate": None,
-                "location": "motifvm/invariants.py",
+                "location": "authority_sources/dccb/crar_rules.md#reported-value-consistency",
+                "sourceHash": _file_hash_if_exists("authority_sources/dccb/crar_rules.md"),
                 "confidence": 0.8,
             },
         ]
@@ -178,7 +183,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.8",
                 "effectiveDate": None,
-                "location": "config/domains/code_review.json",
+                "location": "authority_sources/code_review/security_policy.md",
+                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
                 "confidence": 0.8,
             },
             {
@@ -187,7 +193,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.8",
                 "effectiveDate": None,
-                "location": "config/domains/code_review.json",
+                "location": "authority_sources/code_review/security_policy.md",
+                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
                 "confidence": 0.8,
             },
             {
@@ -196,7 +203,8 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
                 "sourceType": "domain_profile",
                 "version": "0.1.8",
                 "effectiveDate": None,
-                "location": "config/domains/code_review.json",
+                "location": "authority_sources/code_review/security_policy.md",
+                "sourceHash": _file_hash_if_exists("authority_sources/code_review/security_policy.md"),
                 "confidence": 0.7,
             },
         ]
@@ -221,6 +229,17 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
         "parentCommit": None,
         "status": "planning",
     }
+
+
+def _file_hash_if_exists(location: str) -> str | None:
+    path = Path(location)
+    if not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def compute_gap(required: dict[str, float], supported: dict[str, float]) -> dict[str, float]:
@@ -272,7 +291,7 @@ def select_passes(
 
 
 def validate_patch(state: dict[str, Any], patch: StatePatch) -> list[str]:
-    errors: list[str] = []
+    errors: list[str] = validate_state_patch(patch)
     existing = set(state.get("graph", {}).get("nodes", {}))
     incoming = {node["id"] for node in patch.nodes_to_add}
     duplicates = existing & incoming
@@ -596,15 +615,16 @@ def run_task(
                     }
                 )
         llm_calls = []
-        if llm_provider == "mock":
-            client = MockLLMClient()
+        if llm_provider in {"mock", "deepseek"}:
+            client = MockLLMClient() if llm_provider == "mock" else DeepSeekLLMClient()
             parsed, record = client.call_structured(
                 StructuredCallSpec(
                     "CALL_PARSE",
                     {},
                     {"type": "object", "required": ["id", "goal", "intent"]},
                     0.0,
-                    0,
+                    1,
+                    fallback=lambda payload: payload["fallbackTaskAst"],
                 ),
                 {"request": request_or_state, "fallbackTaskAst": task_ast},
             )
@@ -616,7 +636,8 @@ def run_task(
                     {},
                     {"type": "object", "required": ["representation", "invariant"]},
                     0.0,
-                    0,
+                    1,
+                    fallback=lambda payload: payload["fallbackMotifVector"],
                 ),
                 {"taskAst": task_ast, "fallbackMotifVector": diagnose(task_ast)},
             )
@@ -667,6 +688,19 @@ def run_task(
         if result.status == "failed":
             break
     state["invariants"] = run_invariants(state)
+    schema_errors = validate_cognitive_state(state)
+    if schema_errors:
+        state["invariants"].append(
+            {
+                "invariantId": "SCHEMA_001_COGNITIVE_STATE_VALID",
+                "passed": False,
+                "severity": "error",
+                "message": "; ".join(schema_errors),
+                "evidence": [],
+                "autoFixable": False,
+                "suggestedFix": None,
+            }
+        )
     fatal = [
         item
         for item in state["invariants"]
