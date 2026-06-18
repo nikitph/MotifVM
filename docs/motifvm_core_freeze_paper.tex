@@ -5,11 +5,14 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
 \usepackage{hyperref}
 \usepackage{xcolor}
 \usepackage{enumitem}
 
 \definecolor{motifblue}{HTML}{1F4E79}
+\definecolor{motifgreen}{HTML}{0F766E}
 \hypersetup{
   colorlinks=true,
   linkcolor=motifblue,
@@ -18,24 +21,49 @@
 }
 
 \title{\textbf{MotifVM: An Invariant-Checked Reasoning Runtime}\\
-\large Core Freeze at the Adapter Boundary}
-\author{Amul Rangne \and MotifVM Contributors}
+\large Core Freeze at the Adapter Boundary and ExtractedFact Normal Form}
+\author{Nikit Phadke}
 \date{Version 0.5.4}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-Large language model systems often blur the boundary between perception, reasoning, execution, and trust. MotifVM separates these concerns by treating model and tool outputs as proposed state transitions over an explicit cognitive state. This paper describes the v0.5.4 core freeze: artifacts enter through adapters, adapters emit hash-bound evidence references and normalized extracted facts, passes propose state patches, and the runtime validates, authorizes, applies, verifies, commits, and exports independently verifiable audit packs. The result is not another agent framework, but a small reasoning kernel with device-driver-like artifact adapters.
+LLM applications frequently collapse ingestion, reasoning, execution, and trust into a single opaque loop. A model reads an artifact, emits text, calls tools, and the surrounding application often treats the output as actionable state. MotifVM proposes a different architecture: a small cognitive virtual machine in which artifacts are first normalized into hash-bound evidence references and extracted facts, reasoning components propose typed state patches, and the runtime alone validates, authorizes, applies, verifies, commits, and exports terminal states. This paper describes the MotifVM v0.5.4 core freeze. The main contribution is not a new prompt pattern or workflow graph, but a kernel boundary: \texttt{ArtifactAdapter} $\rightarrow$ \texttt{EvidenceRef} $\rightarrow$ \texttt{ExtractedFact} $\rightarrow$ \texttt{StatePatch} $\rightarrow$ invariants $\rightarrow$ terminal state $\rightarrow$ audit pack. We present the runtime model, adapter contract, fact normal form, patch authorization system, invariant-driven terminal semantics, audit-pack verifier, implemented domains, evaluation gates, threat model, and limitations.
 \end{abstract}
 
-\section{Thesis}
+\section{Introduction}
 
-MotifVM reframes the LLM reasoning problem. Instead of asking whether a model can reason over arbitrary messy inputs, MotifVM asks whether messy inputs can be converted into stable evidence and facts, and whether proposed reasoning transitions can be checked before they become state.
+Modern LLM systems are commonly described as agents, chains, or workflows. These terms emphasize orchestration: what component calls what, in what order, with what prompt. They are less precise about the semantics of state. When a model summarizes a spreadsheet, reviews a code diff, or interprets a document, where does the evidence live? Which component is allowed to mutate application state? How is a failed answer represented? Can the result be independently checked after export?
 
-\[
-\text{Artifact} \rightarrow \text{EvidenceRef} \rightarrow \text{ExtractedFact} \rightarrow \text{Claim}
-\]
+MotifVM starts from the opposite direction. It treats reasoning as a virtual-machine problem. The runtime has explicit memory, typed patches, authority references, invariants, terminal states, and portable audit packs. LLMs and tools are outside the trust boundary. They may propose outputs, but they do not directly write truth into the runtime.
+
+The design target is an auditable cognitive VM:
+
+\begin{quote}
+Model and tool outputs do not become truth. They become proposed state transitions over explicit cognitive state.
+\end{quote}
+
+The v0.5.4 milestone freezes the core boundary around artifact adapters and an \texttt{ExtractedFact} normal form. This is the point at which MotifVM's kernel becomes separable from future surface expansion. CSV, diff, repository, PDF, log, API, and email adapters should all behave like device drivers: they translate the outside world into stable evidence and facts without changing the kernel.
+
+\section{Design Goals}
+
+MotifVM is designed around eight goals:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Explicit state.} Reasoning state must be inspectable as a structured object, not implicit in chat history.
+  \item \textbf{Single mutation path.} All state changes must pass through \texttt{StatePatch}.
+  \item \textbf{Adapter isolation.} Artifact ingestion must be separated from domain reasoning.
+  \item \textbf{Evidence stability.} Every evidence record must be hash-bound and locator-stable.
+  \item \textbf{Fact/claim separation.} Extracted facts are weaker than claims and must not imply terminal conclusions.
+  \item \textbf{Patch authorization.} LLMs, passes, tools, reconciliation logic, and runtime code must have different permissions.
+  \item \textbf{Invariant terminal semantics.} Success and failure must be committed terminal states with typed failure classes.
+  \item \textbf{Portable verification.} Audit packs must be checkable without rerunning the original task.
+\end{enumerate}
+
+\section{System Overview}
+
+The core MotifVM transition law is:
 
 \[
 \text{CognitiveState} + \text{StatePatch}
@@ -46,84 +74,349 @@ MotifVM reframes the LLM reasoning problem. Instead of asking whether a model ca
 \rightarrow \text{commit}
 \]
 
-This division is the central design choice. Text and chaos remain at the boundary. Structure exists inside the virtual machine.
+The artifact ingestion law is:
 
-\section{Kernel and Drivers}
+\[
+\text{Artifact}
+\rightarrow \text{ArtifactAdapter}
+\rightarrow \text{EvidenceRef}^{*}
+\rightarrow \text{ExtractedFact}^{*}
+\]
 
-The MotifVM kernel contains the state model, patch semantics, permissions, invariants, terminal states, audit packs, and verifier. Artifact adapters are analogous to device drivers. They let the kernel speak to external artifact types without changing the kernel itself.
+Domain passes then consume extracted facts and propose claims through patches:
+
+\[
+\text{ExtractedFact}^{*}
+\rightarrow \text{DomainPass}
+\rightarrow \text{StatePatch}
+\rightarrow \text{Claim}^{*}
+\]
+
+The complete path is therefore:
+
+\begin{align*}
+\text{ArtifactAdapter} &\rightarrow \text{EvidenceRef}
+\rightarrow \text{ExtractedFact}
+\rightarrow \text{StatePatch} \\
+&\rightarrow \text{Invariant}
+\rightarrow \text{TerminalState}
+\rightarrow \text{AuditPack}
+\rightarrow \text{PackVerifier}
+\end{align*}
+
+\section{Kernel Primitives}
 
 \begin{center}
-\begin{tabular}{ll}
+\begin{tabular}{p{0.28\linewidth}p{0.62\linewidth}}
 \toprule
-\textbf{Kernel primitive} & \textbf{Role} \\
+\textbf{Primitive} & \textbf{Role} \\
 \midrule
-CognitiveState & Explicit runtime memory \\
-StatePatch & Only mutation vehicle \\
-PatchAuthorization & Permission boundary \\
-ArtifactAdapter & Artifact ingestion driver \\
-EvidenceRef & Stable hash-bound locator \\
-ExtractedFact & Normal form before claims \\
-Invariant & Runtime correctness predicate \\
-AuthorityRef & Source-bound rule reference \\
-TerminalState & Committed success or failure \\
-AuditPack & Portable evidence bundle \\
-PackVerifier & Independent consistency checker \\
-PatchTimeline & State-transition log \\
-ReasoningGraph & Claim/evidence topology \\
+\texttt{CognitiveState} & Explicit runtime memory containing task AST, graph, artifacts, invariants, pass history, patch timeline, and terminal metadata. \\
+\texttt{StatePatch} & The only mutation vehicle for cognitive state. \\
+\texttt{PatchAuthorization} & Role-based permission boundary for patches. \\
+\texttt{ArtifactAdapter} & Device-driver-like ingestion component for external artifacts. \\
+\texttt{EvidenceRef} & Hash-bound pointer to a stable region of an input artifact. \\
+\texttt{ExtractedFact} & Normalized fact extracted from evidence before domain claims are made. \\
+\texttt{Claim} & Runtime assertion produced by a domain pass and traceable to evidence. \\
+\texttt{Invariant} & Predicate over state that determines correctness, warnings, or terminal failure. \\
+\texttt{AuthorityRef} & Source-bound rule reference with section metadata and hashes. \\
+\texttt{TerminalState} & Committed success or structured committed failure. \\
+\texttt{AuditPack} & Portable bundle containing state, graph, facts, lineage, invariants, inputs, and reports. \\
+\texttt{PackVerifier} & Independent consistency checker for exported audit packs. \\
+\texttt{PatchTimeline} & Ordered record of authorized and rejected patch proposals. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\section{Adapter Boundary}
+\section{CognitiveState}
 
-An artifact adapter has one job: convert an external artifact into evidence and facts. It may not mutate cognitive state. It may not emit terminal claims. It may not mark an invariant as passed. It is a perception layer, not a reasoning layer.
+\texttt{CognitiveState} is the VM memory image. In v0.5.4 it contains:
 
-\[
-\text{ArtifactAdapter}(a) =
-(\text{EvidenceRef}^{*}, \text{ExtractedFact}^{*})
-\]
+\begin{itemize}[leftmargin=1.5em]
+  \item task AST and domain metadata,
+  \item authority references,
+  \item input manifest,
+  \item motif vector state,
+  \item reasoning graph,
+  \item artifacts,
+  \item decisions,
+  \item invariant results,
+  \item pass history,
+  \item patch timeline,
+  \item execution log,
+  \item terminal status, reason, and failure class.
+\end{itemize}
 
-Each \texttt{EvidenceRef} contains an input identifier, input hash, locator type, locator, and excerpt. Each \texttt{ExtractedFact} references one of those evidence records and carries a normalized value with confidence and extraction metadata.
+The state object is deliberately verbose. The goal is not minimal storage; the goal is inspectability. A committed state should explain not only what answer was produced, but which inputs, evidence, facts, authorities, invariants, and patches produced it.
+
+\section{Artifact Adapters}
+
+An artifact adapter is the boundary between unstructured or semi-structured external artifacts and the VM. It is analogous to a device driver in an operating system. A disk driver does not change the kernel's process model; it gives the kernel a disciplined way to interact with a disk. Similarly, a CSV adapter or PDF adapter should not change MotifVM's reasoning semantics; it should produce stable evidence and normalized facts.
+
+\subsection{Adapter Contract}
+
+Each adapter has:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item an adapter identifier,
+  \item a version,
+  \item supported media or path types,
+  \item a deterministic \texttt{adapt(input\_ref, path)} function.
+\end{itemize}
+
+Each adapter emits an \texttt{AdapterResult}:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item adapter id and version,
+  \item input id,
+  \item path,
+  \item content hash,
+  \item zero or more resolved input artifacts,
+  \item \texttt{EvidenceRef[]} records,
+  \item \texttt{ExtractedFact[]} records,
+  \item adapter metadata.
+\end{itemize}
+
+Adapters may not mutate \texttt{CognitiveState}. They may not emit terminal claims. They may not mark invariants as passed. They are perception components, not reasoning components.
+
+\subsection{Built-In Adapters}
+
+v0.5.4 implements three adapters:
+
+\begin{center}
+\begin{tabular}{p{0.3\linewidth}p{0.24\linewidth}p{0.34\linewidth}}
+\toprule
+\textbf{Adapter} & \textbf{Input} & \textbf{Facts emitted} \\
+\midrule
+\texttt{adapter:csv:v0.5} & CSV files & \texttt{dccb\_component} facts \\
+\texttt{adapter:git\_diff:v0.5} & Patch files & \texttt{code\_added\_line} facts \\
+\texttt{adapter:repo:v0.5} & Repository directories & \texttt{code\_added\_line}, \texttt{repo\_changed\_file} facts \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{EvidenceRef}
+
+\texttt{EvidenceRef} is the stable evidence pointer. Its purpose is to preserve a durable relation between an extracted item and the artifact region it came from.
+
+\begin{verbatim}
+EvidenceRef {
+  id
+  inputId
+  inputHash
+  locatorType
+  locator
+  excerpt
+  metadata
+}
+\end{verbatim}
+
+Examples of locator types include rows, lines, cells, byte ranges, JSON paths, and file regions. The input hash matters because a line number without a content hash is not evidence; it is only a coordinate.
 
 \section{ExtractedFact Normal Form}
 
-The v0.5.4 milestone makes \texttt{ExtractedFact} first-class. This is the bridge between raw evidence and domain claims. For example:
+\texttt{ExtractedFact} is the normal form between raw evidence and domain reasoning.
 
-\begin{itemize}[leftmargin=1.5em]
-  \item A CSV row \texttt{tier1,120} becomes a \texttt{dccb\_component} fact.
-  \item A diff line \texttt{return True} becomes a \texttt{code\_added\_line} fact.
-  \item A changed repository file becomes a \texttt{repo\_changed\_file} fact.
-\end{itemize}
+\begin{verbatim}
+ExtractedFact {
+  id
+  kind
+  value
+  evidenceRefId
+  confidence
+  extractedBy
+  domainHints
+  metadata
+}
+\end{verbatim}
 
-Facts are deliberately weaker than claims. A fact says what was extracted. A claim says what the runtime concludes after domain logic, authority, and invariants.
+Facts are not claims. A fact says what was extracted from an artifact. A claim says what a domain pass concludes from facts under authority and invariants. This distinction prevents domain assumptions from leaking into adapters.
 
-\section{Patch Semantics}
-
-No actor writes directly to \texttt{CognitiveState}. Passes, tools, adapters, and LLM calls can only propose \texttt{StatePatch} transitions. The runtime then checks schema validity, role authorization, graph consistency, domain invariants, and terminal semantics.
-
-\begin{quote}
-LLM and tool outputs do not become truth. They become proposed transitions.
-\end{quote}
-
-This creates a clean trust boundary. A model may summarize. It may not silently change terminal status, invariant results, input manifests, authority references, or source artifacts.
-
-\section{Audit Packs}
-
-An audit pack is a portable evidence bundle. It contains the committed state, graph, lineage, invariants, input manifest, extracted facts, authority references, LLM calls, reconciliation patches, and patch timeline.
-
-The verifier checks internal consistency without rerunning the task: input hashes, authority hashes, section hashes, graph endpoints, lineage references, reconciliation policy, patch timeline shape, and adapter-output conformance.
-
-\section{Results}
-
-By v0.5.4, MotifVM has passed the following release gates:
+\subsection{Examples}
 
 \begin{center}
 \begin{tabular}{lll}
 \toprule
-\textbf{Version} & \textbf{Core proof} & \textbf{Evidence} \\
+\textbf{Artifact fragment} & \textbf{ExtractedFact} & \textbf{Possible claim} \\
 \midrule
-0.1.8 & Kernel and two-domain audit packs & Commit + audit exports \\
-0.2.5 & Provider boundary and evaluation & Structured calls + eval harness \\
+\texttt{tier1,120} & \texttt{dccb\_component} & Computed CRAR uses Tier I capital. \\
+\texttt{return True} & \texttt{code\_added\_line} & Authorization bypass detected. \\
+\texttt{auth.py changed} & \texttt{repo\_changed\_file} & Reviewed file is hash-bound. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Facts to Claims}
+
+Domain passes consume extracted facts and propose claims through \texttt{StatePatch}. In the DCCB domain, component facts become CRAR computation claims. In the code-review domain, added-line facts become security findings and risk claims.
+
+This stage is where domain knowledge enters. The adapter does not know that a CRAR threshold matters. The DCCB pass does. The adapter does not know that \texttt{return True} is unsafe in an authorization function. The code-review pass does. The runtime then checks whether the proposed claims satisfy invariants.
+
+\section{StatePatch Semantics}
+
+\texttt{StatePatch} is the syscall-like mutation interface for MotifVM. A patch may contain:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item nodes to add,
+  \item nodes to update,
+  \item edges to add,
+  \item artifacts to add,
+  \item decisions to add,
+  \item task updates,
+  \item status update,
+  \item motif support deltas.
+\end{itemize}
+
+Before a patch is applied, the runtime checks:
+
+\begin{enumerate}[leftmargin=1.5em]
+  \item schema validity,
+  \item graph endpoint validity,
+  \item duplicate node constraints,
+  \item motif delta validity,
+  \item role authorization.
+\end{enumerate}
+
+\section{Patch Authorization}
+
+Patch authorization is a kernel-level concern because every actor must obey it. v0.5.4 uses role policies:
+
+\begin{center}
+\begin{tabular}{p{0.2\linewidth}p{0.34\linewidth}p{0.34\linewidth}}
+\toprule
+\textbf{Role} & \textbf{Allowed} & \textbf{Blocked examples} \\
+\midrule
+Domain pass & Add domain-scoped claims, outputs, edges, and artifacts. & Cross-domain claim injection. \\
+LLM & Add bounded narrative artifacts. & Terminal status, invariant results, input manifest, authority refs, direct reconciliation patches. \\
+Runtime & Commit state and write runtime metadata. & Unverified terminal facts. \\
+Reconciliation & Add non-mutating correction proposals. & Source mutation without confirmation. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The important point is that LLM output can remain useful without being trusted as state. A model may summarize the final result, but it may not silently change the terminal status or mark failed invariants as passed.
+
+\section{Reasoning Graph}
+
+The reasoning graph connects evidence, claims, outputs, assumptions, decisions, and errors. Graph edges encode relations such as \texttt{supports}, \texttt{produces}, \texttt{contradicts}, and \texttt{blocks}. This graph is not decorative; invariants inspect it. Audit packs export it in JSON, DOT, and Mermaid forms.
+
+The graph lets MotifVM answer questions such as:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item Which evidence supports this claim?
+  \item Which authority references govern this invariant?
+  \item Which claim produced this output?
+  \item Which contradiction caused reconciliation?
+  \item Which patch introduced this artifact?
+\end{itemize}
+
+\section{Invariants and Terminal States}
+
+Invariants define whether a state can be committed as success or must be committed as structured failure. MotifVM distinguishes failure classes rather than collapsing all failures into generic exceptions.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Failure class} & \textbf{Meaning} \\
+\midrule
+\texttt{input\_invalid} & Malformed or invalid artifact values. \\
+\texttt{computation\_blocked} & Required evidence is missing or insufficient. \\
+\texttt{reconciliation\_required} & Evidence conflicts and a non-mutating correction is proposed. \\
+\texttt{security\_risk\_detected} & Code-review invariants detect unsafe behavior. \\
+\texttt{llm\_patch\_rejected} & A model proposed a forbidden transition. \\
+\texttt{authority\_missing} & Required authority references are absent. \\
+\texttt{lineage\_missing} & Terminal outputs lack traceable evidence. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This makes failure part of the VM output. A failed run still preserves evidence, graph state, invariant failures, reconciliation artifacts, and audit metadata.
+
+\section{Authority References}
+
+\texttt{AuthorityRef} records source-bound rule references. v0.4.5 introduced section-level hardening:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item source hash,
+  \item section id,
+  \item quoted rule excerpt,
+  \item effective date,
+  \item retrieval timestamp,
+  \item section hash.
+\end{itemize}
+
+This is intentionally snapshot-based. MotifVM does not browse live regulatory sources in the current kernel; it verifies checked-in authority snapshots.
+
+\section{Audit Packs}
+
+An audit pack is a portable evidence bundle for a committed state. v0.5.4 audit packs include:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{state.json},
+  \item \texttt{report.md},
+  \item \texttt{graph.json}, \texttt{graph.dot}, \texttt{graph.mmd},
+  \item \texttt{lineage.json},
+  \item \texttt{invariants.json},
+  \item \texttt{inputs\_manifest.json},
+  \item \texttt{extracted\_facts.json},
+  \item \texttt{llm\_calls.json},
+  \item \texttt{reconciliation\_patch.json},
+  \item \texttt{patch\_timeline.json},
+  \item \texttt{patch\_timeline.md},
+  \item artifact JSON files.
+\end{itemize}
+
+\section{Pack Verification}
+
+The pack verifier checks internal consistency without rerunning the task. It verifies:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item required files,
+  \item input file and directory hashes,
+  \item authority source hashes,
+  \item authority section hashes,
+  \item graph endpoints,
+  \item lineage references,
+  \item reconciliation policy,
+  \item report terminal status consistency,
+  \item patch timeline shape,
+  \item adapter output conformance.
+\end{itemize}
+
+This changes the trust model from ``trust my answer'' to ``inspect this evidence bundle and verify its internal consistency.''
+
+\section{Implementation}
+
+The current implementation is a dependency-light Python package. The runtime exposes commands for running tasks, rendering reports, exporting audit packs, comparing runs, running evaluations, running adversarial suites, verifying packs, and checking adapter conformance.
+
+\begin{verbatim}
+make test
+make adapter-conformance
+make demo
+make eval
+make adversarial
+make adversarial-100
+python3 -m motifvm verify-pack <audit-pack-dir>
+\end{verbatim}
+
+The implementation includes two domain profiles:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{DCCB CRAR audit}: computes CRAR, checks threshold compliance, detects reported versus computed conflicts, and proposes non-mutating reconciliation patches.
+  \item \textbf{Code review}: reviews patch and repository inputs for security-sensitive findings such as authorization bypass, secret literals, shell execution, eval/exec, disabled TLS verification, SQL interpolation, and unsafe deserialization.
+\end{itemize}
+
+\section{Evaluation}
+
+MotifVM's release gates are intentionally modest but concrete. The goal is to verify runtime boundaries, not to claim universal domain performance.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Version} & \textbf{Core proof} & \textbf{Gate} \\
+\midrule
+0.1.8 & Kernel and two-domain audit packs & Canonical demo runs \\
+0.2.5 & Provider boundary and evaluation & 7-case eval harness \\
 0.3.5 & Adversarial reliability & 20-case adversarial suite \\
 0.4.5 & Scale and integration & Repository review + adversarial-100 \\
 0.5.4 & Adapter boundary freeze & Adapter conformance + extracted facts \\
@@ -131,14 +424,61 @@ By v0.5.4, MotifVM has passed the following release gates:
 \end{tabular}
 \end{center}
 
+The v0.5.4 release gate observed:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item 18 unit tests passing,
+  \item adapter conformance passing for CSV, git diff, and repository adapters,
+  \item demo suite passing,
+  \item evaluation suite passing,
+  \item 20-case adversarial suite passing,
+  \item 100-case adversarial suite passing,
+  \item representative audit pack verification passing,
+  \item PDF generation passing.
+\end{itemize}
+
+\section{Threat Model}
+
+MotifVM protects the following assets:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item cognitive state,
+  \item input manifests and hashes,
+  \item authority references and hashes,
+  \item extracted facts and evidence refs,
+  \item invariant results,
+  \item terminal state,
+  \item audit packs.
+\end{itemize}
+
+Threats considered include malformed input, adversarial numeric fields, unsafe code diffs, LLM attempts to modify terminal facts, unauthorized source mutation, missing lineage, and audit-pack tampering.
+
+Controls include schema validation, patch authorization, input and authority hashing, domain and universal invariants, failure taxonomy, patch timeline export, and independent pack verification.
+
 \section{Limitations}
 
-MotifVM does not prove that every domain rule is complete, every regulation is current, or every security flaw is detected. It proves something narrower and more architectural: the runtime preserved the declared evidence, authority, permission, transition, invariant, and audit-pack boundaries for the task it ran.
+MotifVM does not prove that every domain rule is complete, every source authority is legally current, or every possible security flaw is detected. It does not replace static analyzers, regulatory counsel, formal methods, or human review. It currently uses checked-in authority snapshots rather than live source retrieval. Repository review is still patch-oriented rather than a full program analysis engine.
+
+The verifier checks internal consistency of the exported audit pack. It does not certify that the domain is complete or that the output is legally or financially sufficient.
+
+\section{Future Work}
+
+With the adapter boundary frozen, future work should primarily expand surfaces rather than mutate the kernel:
+
+\begin{itemize}[leftmargin=1.5em]
+  \item XLSX, PDF, JSON, log, API, database, and email adapters,
+  \item richer domain profiles,
+  \item larger labeled evaluations,
+  \item stronger static-analysis integration for code review,
+  \item source snapshotting for external authorities,
+  \item interactive audit-pack inspection UI,
+  \item deployment patterns for CI and regulated workflows.
+\end{itemize}
 
 \section{Conclusion}
 
-MotifVM is best understood as an auditable cognitive virtual machine. Its core invention is not another orchestration graph or prompt template. Its core invention is the refusal to treat model and tool output as state. Output must pass through adapters, facts, patches, authorization, invariants, and committed terminal states.
+MotifVM is an invariant-checked reasoning runtime. Its core contribution is the disciplined treatment of model and tool output as proposed state transitions rather than truth. Artifacts enter through adapters. Adapters emit evidence and facts. Domain passes propose claims. StatePatches are validated and authorized. Invariants define terminal states. Audit packs preserve the trace. The verifier checks the exported bundle.
 
-With the adapter boundary frozen, future work becomes surface expansion: more adapters, more domain profiles, more invariants, better extraction, better user interfaces, larger evaluations, and real deployments. The kernel itself has a stable shape.
+This architecture separates perception, reasoning, trust, mutation, and portability. That separation is the kernel. The rest is adapters, domains, invariants, tools, and interfaces.
 
 \end{document}
