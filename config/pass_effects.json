@@ -1,0 +1,72 @@
+{
+  "normalize_intent": {
+    "strengthens": {"representation": 0.35, "boundary": 0.15},
+    "cost": {"latency": 0.05, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["schema_invalid"],
+    "runtimeInternal": false
+  },
+  "resolve_inputs": {
+    "strengthens": {"addressing": 0.45, "storage": 0.25, "state": 0.15},
+    "cost": {"latency": 0.15, "tokens": 0.0, "toolRisk": 0.05},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["input_invalid", "lineage_missing"],
+    "runtimeInternal": false
+  },
+  "decompose_task": {
+    "strengthens": {"composition": 0.4, "hierarchy": 0.35},
+    "cost": {"latency": 0.08, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["tool_failed"],
+    "runtimeInternal": false
+  },
+  "extract_constraints": {
+    "strengthens": {"invariant": 0.35, "authority": 0.25, "boundary": 0.2},
+    "cost": {"latency": 0.12, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["authority_missing", "invariant_failed"],
+    "runtimeInternal": false
+  },
+  "build_evidence_graph": {
+    "strengthens": {"state": 0.25, "addressing": 0.25, "storage": 0.1},
+    "cost": {"latency": 0.2, "tokens": 0.0, "toolRisk": 0.05},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["lineage_missing", "input_invalid"],
+    "runtimeInternal": false
+  },
+  "assign_tools": {
+    "strengthens": {"transition": 0.25, "scheduling": 0.15},
+    "cost": {"latency": 0.06, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["tool_failed"],
+    "runtimeInternal": false
+  },
+  "schedule_execution": {
+    "strengthens": {"scheduling": 0.35, "scarcity": 0.1},
+    "cost": {"latency": 0.06, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["tool_failed"],
+    "runtimeInternal": false
+  },
+  "execute_subtasks": {
+    "strengthens": {"transition": 0.45, "feedback": 0.25, "terminal_state": 0.25, "invariant": 0.15},
+    "cost": {"latency": 0.35, "tokens": 0.0, "toolRisk": 0.15},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["input_invalid", "security_risk_detected", "reconciliation_required"],
+    "runtimeInternal": false
+  },
+  "verify_structural": {
+    "strengthens": {"invariant": 0.25, "feedback": 0.2},
+    "cost": {"latency": 0.14, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["invariant_failed", "lineage_missing", "authority_missing"],
+    "runtimeInternal": false
+  },
+  "synthesize_output": {
+    "strengthens": {"representation": 0.25, "terminal_state": 0.45},
+    "cost": {"latency": 0.1, "tokens": 0.0, "toolRisk": 0.0},
+    "risk": {"sourceMutation": 0.0, "llmReliance": 0.0},
+    "failureModes": ["schema_invalid"],
+    "runtimeInternal": false
+  }
+}

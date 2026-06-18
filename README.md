@@ -23,7 +23,8 @@ No pass, tool, or LLM call mutates `CognitiveState` directly. Everything emits `
 flowchart LR
   Request["Request / Domain Task"] --> TaskAST["TaskAST"]
   TaskAST --> Motif["Motif Diagnosis"]
-  Motif --> Plan["Pass Plan"]
+  Motif --> Frame["MotifFrame"]
+  Frame --> Plan["ReasoningPlan"]
   Plan --> Patch["StatePatch"]
   Patch --> Invariants["Invariant Check"]
   Invariants --> Commit["Commit Success / Failure"]
@@ -78,6 +79,12 @@ Run adapter conformance checks:
 
 ```bash
 make adapter-conformance
+```
+
+Run compiler planning evaluation:
+
+```bash
+make compiler-eval
 ```
 
 ## Examples
@@ -159,6 +166,9 @@ Failed states are first-class outputs. MotifVM preserves evidence, lineage, grap
 
 - `report.md`
 - `state.json`
+- `motif_frame.json`
+- `reasoning_plan.json`
+- `reasoning_plans.json`
 - `graph.json`
 - `graph.dot`
 - `graph.mmd`
@@ -181,6 +191,8 @@ Audit packs also include `patch_timeline.json` and `patch_timeline.md`, which sh
 
 Audit packs include `extracted_facts.json`, which records adapter-emitted `EvidenceRef` and `ExtractedFact` records before domain passes convert facts into claims.
 
+Audit packs also include the compiler surface: `motif_frame.json` records required/support/gap/risk, while `reasoning_plan.json` records selected passes, policy rationale, and verification strength.
+
 ## Kernel Freeze
 
 MotifVM v0.5.4 freezes the core boundary around artifact adapters and extracted facts:
@@ -196,6 +208,21 @@ Contract docs:
 - [Fact contract](docs/fact_contract.md)
 - [Patch contract](docs/patch_contract.md)
 - [Audit pack contract](docs/audit_pack_contract.md)
+
+## Compiler Layer
+
+MotifVM v0.6.5 adds the cognitive compiler above the frozen kernel:
+
+```text
+TaskAST -> MotifFrame -> ReasoningPlan -> verification policy -> StatePatch runtime
+```
+
+The compiler computes consequence-weighted motif risk, selects passes from `config/pass_effects.json`, chooses light/standard/strict verification, and emits replan events when fatal invariants classify as reconciliation, computation-blocked, invalid-input, missing-authority, missing-lineage, or security-risk failures.
+
+Compiler docs:
+
+- [Compiler contract](docs/compiler_contract.md)
+- [v0.6.5 results](docs/results_v0_6_5.md)
 
 Paper:
 

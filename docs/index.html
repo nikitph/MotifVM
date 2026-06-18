@@ -15,6 +15,7 @@
     </a>
     <nav class="nav-links" aria-label="Sections">
       <a href="#kernel">Kernel</a>
+      <a href="#compiler">Compiler</a>
       <a href="#adapters">Adapters</a>
       <a href="#facts">Facts</a>
       <a href="#patches">Patches</a>
@@ -32,9 +33,10 @@
         <p class="eyebrow">Auditable cognitive virtual machine</p>
         <h1 id="hero-title">MotifVM</h1>
         <p class="hero-copy">
-          An invariant-checked reasoning runtime where artifacts become evidence,
-          facts become claims, and model or tool outputs must pass through
-          authorized StatePatches before they become committed state.
+          An invariant-checked reasoning runtime with a motif-aware compiler:
+          tasks become MotifFrames, frames become ReasoningPlans, and every
+          model or tool output must pass through authorized StatePatches before
+          it becomes committed state.
         </p>
         <div class="hero-actions">
           <a class="button primary" href="#what">Explore the runtime</a>
@@ -42,21 +44,44 @@
         </div>
       </div>
       <aside class="hero-proof" aria-label="Release proof">
-        <span>core freeze</span>
-        <strong>v0.5.4</strong>
-        <small>Adapter boundary + ExtractedFact normal form</small>
+        <span>compiler layer</span>
+        <strong>v0.6.5</strong>
+        <small>MotifFrame + ReasoningPlan + adaptive verification</small>
       </aside>
     </section>
 
     <section class="runtime-strip" aria-label="Runtime pipeline">
       <div class="pipeline">
         <span>Artifact</span>
+        <span>MotifFrame</span>
+        <span>ReasoningPlan</span>
         <span>EvidenceRef</span>
         <span>ExtractedFact</span>
         <span>StatePatch</span>
         <span>Invariant</span>
         <span>TerminalState</span>
         <span>AuditPack</span>
+      </div>
+    </section>
+
+    <section id="compiler" class="section split">
+      <div>
+        <p class="section-kicker">Compiler layer</p>
+        <h2>The compiler decides how a task should enter the kernel.</h2>
+      </div>
+      <div class="prose">
+        <p>
+          MotifVM now computes consequence-weighted motif risk before execution.
+          A MotifFrame records required support, current support, gap, risk, and
+          selected policies. The ReasoningPlan then chooses passes from declared
+          PassEffect metadata instead of relying on a fixed pass order.
+        </p>
+        <p>
+          Low-risk tasks select light verification. Authority-heavy audit and
+          security tasks select strict verification, evidence construction,
+          authority extraction, structural checks, and replan behavior when
+          invariants classify a terminal failure.
+        </p>
       </div>
     </section>
 
@@ -264,6 +289,8 @@
       <div class="audit-layout">
         <div class="audit-files">
           <span>state.json</span>
+          <span>motif_frame.json</span>
+          <span>reasoning_plan.json</span>
           <span>graph.json</span>
           <span>lineage.json</span>
           <span>inputs_manifest.json</span>
@@ -281,6 +308,7 @@
             <li>lineage references</li>
             <li>adapter conformance</li>
             <li>patch timeline shape</li>
+            <li>compiler frame and plan shape</li>
           </ul>
           <pre><code>python3 -m motifvm verify-pack audit_pack/001</code></pre>
         </div>
@@ -317,11 +345,11 @@
     </section>
 
     <section class="section cta">
-      <p class="section-kicker">Kernel frozen, surfaces open</p>
-      <h2>MotifVM turns LLM systems into inspectable state machines.</h2>
+      <p class="section-kicker">Kernel frozen, compiler alive</p>
+      <h2>MotifVM turns LLM systems into inspectable state machines with explicit planning policy.</h2>
       <div class="cta-actions">
         <a class="button primary" href="https://github.com/nikitph/MotifVM">Open GitHub</a>
-        <a class="button secondary" href="results_v0_5_4.md">See v0.5.4 results</a>
+        <a class="button secondary" href="results_v0_6_5.md">See v0.6.5 results</a>
       </div>
     </section>
   </main>

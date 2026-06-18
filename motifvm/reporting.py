@@ -45,6 +45,50 @@ def render_report(state: dict[str, Any], show_graph: bool = False) -> str:
     lines.extend(_terminal_block(state))
     lines.extend([
         "",
+        "Motif Frame",
+        "-----------",
+    ])
+    frame = state.get("motifFrame", {})
+    risk = frame.get("risk", {})
+    if frame:
+        lines.append(f"Frame: {frame.get('id')} by {frame.get('createdBy')}")
+        lines.append(f"Policies: {', '.join(frame.get('selectedPolicies', [])) or 'none'}")
+        for key, value in sorted(risk.items(), key=lambda item: item[1], reverse=True)[:6]:
+            lines.append(
+                f"- {key}: required={frame.get('required', {}).get(key, 0):.2f}, "
+                f"supported={frame.get('supported', {}).get(key, 0):.2f}, "
+                f"gap={frame.get('gap', {}).get(key, 0):.2f}, risk={value:.2f}"
+            )
+    else:
+        lines.append("No motif frame recorded.")
+    plan = state.get("reasoningPlan", {})
+    verification = plan.get("verificationPolicy") or state.get("verificationPolicy", {})
+    lines.extend([
+        "",
+        "Reasoning Plan",
+        "--------------",
+    ])
+    if plan:
+        lines.append(f"Plan: {plan.get('id')}")
+        lines.append(f"Selected Passes: {', '.join(plan.get('selectedPasses', []))}")
+        if verification:
+            lines.append(
+                f"Verification: {verification.get('strength')} "
+                f"({verification.get('rationale')})"
+            )
+            lines.append(f"Checks: {', '.join(verification.get('checks', []))}")
+        lines.append(f"Rationale: {plan.get('rationale')}")
+    else:
+        lines.append("No reasoning plan recorded.")
+    if state.get("replanEvents"):
+        lines.extend(["", "Replanning", "----------"])
+        for event in state.get("replanEvents", []):
+            lines.append(
+                f"- {event.get('failureClass')}: {event.get('action')} "
+                f"adjustments={event.get('motifAdjustments')}"
+            )
+    lines.extend([
+        "",
         "Final Output",
         "------------",
         final or "No final output artifact produced.",

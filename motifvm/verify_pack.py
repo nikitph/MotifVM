@@ -70,6 +70,9 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
         "graph.mmd",
         "lineage.json",
         "invariants.json",
+        "motif_frame.json",
+        "reasoning_plan.json",
+        "reasoning_plans.json",
         "inputs_manifest.json",
         "extracted_facts.json",
         "patch_timeline.json",
@@ -86,6 +89,20 @@ def verify_pack(path: Path) -> tuple[bool, list[dict[str, str]]]:
         for item in timeline.get("patches", []):
             if not item.get("passName") or "authorized" not in item:
                 issues.append({"check": "PACK_PATCH_TIMELINE", "message": "Patch timeline entry missing passName/authorized"})
+
+    motif_frame_path = path / "motif_frame.json"
+    if motif_frame_path.exists():
+        motif_frame = json.loads(motif_frame_path.read_text(encoding="utf-8"))
+        for key in ("id", "taskId", "required", "supported", "gap", "risk", "selectedPolicies"):
+            if key not in motif_frame:
+                issues.append({"check": "PACK_MOTIF_FRAME", "message": f"Motif frame missing {key}"})
+
+    reasoning_plan_path = path / "reasoning_plan.json"
+    if reasoning_plan_path.exists():
+        reasoning_plan = json.loads(reasoning_plan_path.read_text(encoding="utf-8"))
+        for key in ("id", "taskId", "motifFrameId", "selectedPasses", "verificationPolicy"):
+            if key not in reasoning_plan:
+                issues.append({"check": "PACK_REASONING_PLAN", "message": f"Reasoning plan missing {key}"})
 
     for authority in authorities.values():
         excerpt = authority.get("quotedRuleExcerpt")

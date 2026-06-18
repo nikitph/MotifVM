@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from .authority import authority_ref
+from .compiler import compile_reasoning_plan, create_motif_frame, load_pass_effects, replan_after_failure
 from .invariants import run_invariants
 from .failure import classify_failure
 from .llm import DeepSeekLLMClient, MockLLMClient, StructuredCallSpec
-from .model import MOTIF_KEYS, PHASE_ORDER, CompilerPass, PassResult, StatePatch, empty_motif_vector
+from .model import MOTIF_KEYS, CompilerPass, PassResult, StatePatch, empty_motif_vector
 from .passes import edge, node, registry
 from .patch_auth import authorize_patch
 from .registry import load_domain_profile, validate_pass_graph
@@ -216,6 +217,11 @@ def initial_state(task_ast: dict[str, Any], required: dict[str, float]) -> dict[
             "gap": compute_gap(required, supported),
         },
         "motifSignature": required,
+        "motifFrame": create_motif_frame(task_ast, required, supported),
+        "reasoningPlan": {},
+        "reasoningPlans": [],
+        "verificationPolicy": {},
+        "replanEvents": [],
         "graph": {"nodes": {}, "edges": []},
         "artifacts": [],
         "decisions": [],
@@ -239,42 +245,18 @@ def select_passes(
     supported: dict[str, float],
     threshold: float = 0.15,
 ) -> list[CompilerPass]:
-    gap = compute_gap(required, supported)
-    relevant = {
-        item.name
-        for item in passes
-        if any(gap.get(key, 0.0) >= threshold for key in item.strengthens)
+    task_ast = {
+        "id": "task:legacy_planner",
+        "goal": "legacy motif-gap planning helper",
+        "intent": "verify",
+        "inputs": [{"id": "input:legacy", "location": "legacy.csv"}] if required.get("addressing", 0.0) >= threshold else [],
+        "meta": {"domain": "dccb_audit"} if required.get("authority", 0.0) >= 0.75 else {},
     }
+    frame = create_motif_frame(task_ast, required, supported)
+    pass_effects = {item.name: {"strengthens": {key: 0.3 for key in item.strengthens}, "cost": {}} for item in passes}
+    plan = compile_reasoning_plan(task_ast, frame, passes, pass_effects)
     by_name = {item.name: item for item in passes}
-
-    def include_dependencies(pass_name: str) -> None:
-        for dep in by_name[pass_name].depends_on:
-            if dep not in relevant and dep in by_name:
-                relevant.add(dep)
-                include_dependencies(dep)
-
-    for pass_name in list(relevant):
-        include_dependencies(pass_name)
-
-    remaining = [item for item in passes if item.name in relevant]
-    selected: list[CompilerPass] = []
-    selected_names: set[str] = set()
-    while remaining:
-        ready = [item for item in remaining if all(dep in selected_names for dep in item.depends_on)]
-        if not ready:
-            break
-        ready.sort(
-            key=lambda item: (
-                PHASE_ORDER[item.phase],
-                -sum(gap.get(key, 0.0) for key in item.strengthens),
-                item.name,
-            )
-        )
-        item = ready[0]
-        selected.append(item)
-        selected_names.add(item.name)
-        remaining.remove(item)
-    return selected
+    return [by_name[name] for name in plan["selectedPasses"] if name in by_name]
 
 
 def validate_patch(state: dict[str, Any], patch: StatePatch) -> list[str]:
@@ -787,13 +769,31 @@ def run_task(
             failure_class=classify_failure(item["invariantId"] for item in graph_errors),
         )
         return state
-    passes = select_passes(registry(), state["motifState"]["required"], state["motifState"]["supported"])
+    pass_effects = load_pass_effects(root)
+    state["motifFrame"] = create_motif_frame(
+        state["taskAst"],
+        state["motifState"]["required"],
+        state["motifState"]["supported"],
+    )
+    plan = compile_reasoning_plan(state["taskAst"], state["motifFrame"], registry(), pass_effects)
+    state["reasoningPlan"] = plan
+    state["reasoningPlans"] = [plan]
+    state["verificationPolicy"] = plan["verificationPolicy"]
+    by_name = {item.name: item for item in registry()}
+    passes = [by_name[name] for name in plan["selectedPasses"] if name in by_name]
     state["artifacts"].append(
         {
             "id": "artifact:pass_plan",
             "type": "pass_plan",
-            "content": {"passes": [item.name for item in passes]},
-            "producedBy": "planner",
+            "content": {
+                "passes": [item.name for item in passes],
+                "motifFrameId": state["motifFrame"]["id"],
+                "reasoningPlanId": plan["id"],
+                "verificationPolicy": plan["verificationPolicy"],
+                "expectedMotifGapReduction": plan["expectedMotifGapReduction"],
+                "rationale": plan["rationale"],
+            },
+            "producedBy": "motif_compiler",
             "timestamp": utc_now(),
         }
     )
@@ -835,8 +835,10 @@ def run_task(
         if not item.get("passed") and item.get("severity") == "error"
     ]
     if fatal:
+        failure_class = classify_failure(item.get("invariantId", "unknown") for item in fatal)
         state = apply_reconciliation(state, fatal)
         state["invariants"] = run_invariants(state)
+        state = replan_after_failure(state, failure_class, fatal)
         state = emit_llm_narrative(state, llm_provider)
         reason = ", ".join(item.get("invariantId", "unknown") for item in fatal)
         _commit_id, state = commit_state(
@@ -844,7 +846,7 @@ def run_task(
             state,
             status="committed_failed",
             reason=reason,
-            failure_class=classify_failure(item.get("invariantId", "unknown") for item in fatal),
+            failure_class=failure_class,
         )
     else:
         state = emit_llm_narrative(state, llm_provider)

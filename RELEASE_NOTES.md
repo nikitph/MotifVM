@@ -1,5 +1,45 @@
 # Release Notes
 
+## v0.6.5
+
+MotifVM v0.6.5 implements the cognitive compiler layer above the frozen kernel. Every run now receives a `MotifFrame`, a motif-gap-derived `ReasoningPlan`, an adaptive verification policy, and replan metadata when fatal invariants require a different response path.
+
+### Added
+
+- `MotifFrame`:
+  - required motif vector
+  - supported motif vector
+  - motif gap
+  - consequence-weighted risk
+  - selected compiler policies
+- `config/pass_effects.json` covering every runtime pass.
+- Motif-aware planner that scores pass effects against motif gaps and emits dependency-safe pass plans.
+- Adaptive verification policies:
+  - `light`
+  - `standard`
+  - `strict`
+- Failure-driven replanning for:
+  - missing lineage
+  - missing authority
+  - reconciliation requirements
+  - computation blocking
+  - invalid input
+  - security-risk detection
+- Audit-pack compiler exports:
+  - `motif_frame.json`
+  - `reasoning_plan.json`
+  - `reasoning_plans.json`
+- Report sections for motif risk, selected policies, selected passes, verification rationale, and replan events.
+- Compiler evaluation harness:
+
+```bash
+make compiler-eval
+```
+
+### Verification
+
+See `docs/results_v0_6_5.md`.
+
 ## v0.5.4
 
 MotifVM v0.5.4 freezes the kernel boundary around artifact adapters and the `ExtractedFact` normal form. CSV, git diff, and repository inputs now enter through `ArtifactAdapter` contracts that emit hash-bound `EvidenceRef` records and normalized `ExtractedFact` records before any domain pass constructs claims.
@@ -46,6 +86,7 @@ See `docs/results_v0_5_4.md`.
 | 0.3.5 | adversarial reliability + patch authorization + pack verifier |
 | 0.4.5 | repository-scale inputs + LLM narrative boundary + authority section citations + patch timeline + adversarial-100 |
 | 0.5.4 | adapter boundary + ExtractedFact normal form + kernel freeze contracts |
+| 0.6.5 | cognitive compiler + MotifFrame + motif-aware planning + adaptive verification + replanning |
 
 ## v0.4.5
 

@@ -9,6 +9,8 @@ from motifvm.adversarial import run_adversarial
 from motifvm.adapter_conformance import run_adapter_conformance
 from motifvm.adapters import adapt_path, verify_adapter_result
 from motifvm.audit import export_audit_pack
+from motifvm.compiler import compile_reasoning_plan, create_motif_frame, load_pass_effects
+from motifvm.compiler_eval import run_compiler_evaluation
 from motifvm.verify_pack import verify_pack
 from motifvm.graph import compare_states
 from motifvm.llm import DeepSeekLLMClient
@@ -68,6 +70,10 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue((root / ".motifvm" / "state" / "current.json").exists())
             self.assertEqual(len(state["inputManifest"]), 1)
             self.assertEqual(len(state["inputManifest"][0]["sha256"]), 64)
+            self.assertIn("motifFrame", state)
+            self.assertIn("reasoningPlan", state)
+            self.assertEqual(state["verificationPolicy"]["strength"], "strict")
+            self.assertIn("extract_constraints", state["reasoningPlan"]["selectedPasses"])
             final = [
                 artifact
                 for artifact in state["artifacts"]
@@ -158,6 +164,9 @@ class RuntimeTests(unittest.TestCase):
             ][0]
             self.assertTrue(recon_001["passed"])
             self.assertTrue(recon_002["passed"])
+            self.assertEqual(state["replanEvents"][0]["failureClass"], "reconciliation_required")
+            self.assertEqual(state["replanEvents"][0]["action"], "run_reconciliation")
+            self.assertTrue(any(item["passName"] == "motif_compiler_replan" for item in state["patchTimeline"]))
 
             export_path = export_audit_pack(root, "001")
             ok, issues = verify_pack(export_path)
@@ -165,6 +174,8 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue((export_path / "report.md").exists())
             self.assertTrue((export_path / "state.json").exists())
             self.assertTrue((export_path / "lineage.json").exists())
+            self.assertTrue((export_path / "motif_frame.json").exists())
+            self.assertTrue((export_path / "reasoning_plan.json").exists())
             self.assertTrue((export_path / "inputs_manifest.json").exists())
             self.assertTrue((export_path / "reconciliation_patch.json").exists())
             manifest = json.loads((export_path / "inputs_manifest.json").read_text())
@@ -225,6 +236,7 @@ class RuntimeTests(unittest.TestCase):
 
             self.assertEqual(state["status"], "committed_failed")
             self.assertEqual(state["failureClass"], "computation_blocked")
+            self.assertEqual(state["replanEvents"][0]["action"], "request_more_evidence")
             components = [
                 item
                 for item in state["invariants"]
@@ -288,6 +300,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(safe["status"], "committed_success")
             self.assertEqual(auth["status"], "committed_failed")
             self.assertEqual(auth["terminalReason"], "CODE_003_NO_UNCONDITIONAL_AUTH_ALLOW")
+            self.assertEqual(auth["replanEvents"][0]["action"], "commit_security_failure")
             self.assertEqual(secret["status"], "committed_failed")
             self.assertEqual(secret["terminalReason"], "CODE_004_NO_SECRET_LITERAL")
             self.assertTrue(auth["inputManifest"][0]["sha256"])
@@ -427,6 +440,40 @@ class RuntimeTests(unittest.TestCase):
 
             self.assertEqual(len(rows), 3)
             self.assertTrue(all(row["schema_valid"] == "yes" for row in rows))
+
+    def test_compiler_selects_different_plans_by_motif_risk(self):
+        pass_effects = load_pass_effects(Path(__file__).resolve().parents[1])
+        low_task = parse_request("Summarize this project note")
+        low_state = initial_state(low_task, diagnose(low_task))
+        low_frame = create_motif_frame(low_task, low_state["motifState"]["required"], low_state["motifState"]["supported"])
+        low_plan = compile_reasoning_plan(low_task, low_frame, registry(), pass_effects)
+
+        audit_task = parse_request("Verify CRAR using examples/crar_good.csv", "dccb_audit")
+        audit_state = initial_state(audit_task, diagnose(audit_task))
+        audit_frame = create_motif_frame(audit_task, audit_state["motifState"]["required"], audit_state["motifState"]["supported"])
+        audit_plan = compile_reasoning_plan(audit_task, audit_frame, registry(), pass_effects)
+
+        self.assertEqual(low_plan["verificationPolicy"]["strength"], "light")
+        self.assertEqual(audit_plan["verificationPolicy"]["strength"], "strict")
+        self.assertNotEqual(low_plan["selectedPasses"], audit_plan["selectedPasses"])
+        self.assertNotIn("extract_constraints", low_plan["selectedPasses"])
+        self.assertIn("extract_constraints", audit_plan["selectedPasses"])
+
+    def test_pass_effect_registry_covers_runtime_passes(self):
+        effects = load_pass_effects(Path(__file__).resolve().parents[1])
+        missing = [item.name for item in registry() if item.name not in effects]
+        self.assertEqual(missing, [])
+        self.assertTrue(all("failureModes" in effects[item.name] for item in registry()))
+
+    def test_compiler_evaluation_reports_required_metrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = run_compiler_evaluation(root)
+            summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(summary["planSelectionAccuracy"], "4/4")
+            self.assertEqual(summary["verificationPolicyAccuracy"], "4/4")
+            self.assertEqual(summary["missedRequiredPassRate"], "0/4")
 
     def test_schema_validation_rejects_bad_patch(self):
         errors = validate_state_patch({"nodesToAdd": "bad", "motifSupportDelta": {"nope": -1}})
